@@ -1,5 +1,8 @@
 package org.asimon.sefaria.feature.settings
 
+import org.asimon.sefaria.ui.AppLanguage
+import androidx.compose.runtime.remember
+import androidx.activity.compose.LocalActivity
 import org.asimon.sefaria.ui.components.label
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
@@ -76,6 +79,30 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
             Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text(stringResource(R.string.language), style = MaterialTheme.typography.titleSmall)
+            val activity = LocalActivity.current
+            val current = remember { activity?.let { AppLanguage.current(it) } ?: AppLanguage.Device }
+            val langs = AppLanguage.entries
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                langs.forEachIndexed { i, l ->
+                    SegmentedButton(
+                        selected = current == l,
+                        onClick = { if (activity != null && l != current) AppLanguage.set(activity, l) },
+                        shape = SegmentedButtonDefaults.itemShape(i, langs.size),
+                    ) {
+                        // each language names itself, so it can be found from any interface language
+                        Text(
+                            when (l) {
+                                AppLanguage.Device -> stringResource(R.string.language_device)
+                                AppLanguage.English -> "English"
+                                AppLanguage.Hebrew -> "עברית"
+                            },
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+            HorizontalDivider()
             Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
             val themes = ThemeMode.entries
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

@@ -54,6 +54,8 @@
     <string name="empty_history">Books you read appear here.</string>
 
     <!-- settings -->
+    <string name="language">Language</string>
+    <string name="language_device">Device</string>
     <string name="server">Server</string>
     <string name="server_url">Server URL</string>
     <string name="save">Save</string>

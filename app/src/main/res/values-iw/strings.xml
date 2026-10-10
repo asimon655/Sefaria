@@ -54,6 +54,8 @@
     <string name="empty_history">ספרים שקראתם יופיעו כאן.</string>
 
     <!-- settings -->
+    <string name="language">שפה</string>
+    <string name="language_device">שפת המכשיר</string>
     <string name="server">שרת</string>
     <string name="server_url">כתובת השרת</string>
     <string name="save">שמירה</string>

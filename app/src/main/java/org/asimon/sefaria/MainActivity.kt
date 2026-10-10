@@ -1,5 +1,7 @@
 package org.asimon.sefaria
 
+import org.asimon.sefaria.ui.AppLanguage
+import android.content.Context
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
 import android.os.Bundle
@@ -46,6 +48,8 @@ import kotlin.reflect.KClass
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var settings: Settings
+
+    override fun attachBaseContext(newBase: Context) = super.attachBaseContext(AppLanguage.wrap(newBase))
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
