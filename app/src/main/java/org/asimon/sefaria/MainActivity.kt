@@ -1,134 +1,122 @@
 package org.asimon.sefaria
 
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
+import androidx.compose.material.icons.outlined.Bookmarks
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.activity.ComponentActivity
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.toRoute
 import dagger.hilt.android.AndroidEntryPoint
-import org.asimon.sefaria.screens.BookScreen
-import org.asimon.sefaria.screens.HomeScreen
-
+import org.asimon.sefaria.data.Settings
+import org.asimon.sefaria.feature.book.BookScreen
+import org.asimon.sefaria.feature.library.LibraryScreen
+import org.asimon.sefaria.feature.reader.ReaderScreen
+import org.asimon.sefaria.feature.saved.SavedScreen
+import org.asimon.sefaria.feature.search.SearchScreen
+import org.asimon.sefaria.feature.settings.SettingsScreen
+import org.asimon.sefaria.ui.theme.SefariaTheme
+import javax.inject.Inject
+import kotlin.reflect.KClass
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var settings: Settings
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                Nav()
+            val prefs by settings.prefs.collectAsStateWithLifecycle()
+            SefariaTheme(prefs.theme) { AppNav() }
+        }
+    }
+}
+
+private data class Tab(val route: Any, val type: KClass<*>, val label: String, val icon: ImageVector)
+
+private val tabs = listOf(
+    Tab(LibraryRoute(), LibraryRoute::class, "Library", Icons.AutoMirrored.Outlined.LibraryBooks),
+    Tab(SearchRoute, SearchRoute::class, "Search", Icons.Outlined.Search),
+    Tab(SavedRoute, SavedRoute::class, "Saved", Icons.Outlined.Bookmarks),
+)
+
+@Composable
+private fun AppNav() {
+    val nav = rememberNavController()
+    val entry by nav.currentBackStackEntryAsState()
+    val dest = entry?.destination
+    val showBar = dest != null && !dest.hasRoute(ReaderRoute::class) && !dest.hasRoute(SettingsRoute::class)
+    Scaffold(
+        bottomBar = {
+            if (showBar) NavigationBar {
+                for (tab in tabs) {
+                    val selected = dest.hierarchy.any { it.hasRoute(tab.type) } ||
+                        (tab.type == LibraryRoute::class && dest.hasRoute(BookRoute::class))
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = { nav.switchTab(tab.route) },
+                        icon = { Icon(tab.icon, contentDescription = null) },
+                        label = { Text(tab.label) },
+                    )
+                }
+            }
+        },
+    ) { padding ->
+        // the bottom bar owns the bottom inset; screens' own Scaffolds handle the top
+        val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
+        NavHost(nav, startDestination = LibraryRoute(), modifier = Modifier.padding(bottom).consumeWindowInsets(bottom)) {
+            composable<LibraryRoute> {
+                LibraryScreen(
+                    onCategory = { nav.navigate(it) },
+                    onBook = { nav.navigate(BookRoute(it)) },
+                    onSettings = { nav.navigate(SettingsRoute) },
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            composable<BookRoute> {
+                BookScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
+            }
+            composable<ReaderRoute> {
+                ReaderScreen(onBack = { nav.popBackStack() })
+            }
+            composable<SearchRoute> {
+                SearchScreen(onOpen = { nav.navigate(it) })
+            }
+            composable<SavedRoute> {
+                SavedScreen(onOpen = { nav.navigate(it) })
+            }
+            composable<SettingsRoute> {
+                SettingsScreen(onBack = { nav.popBackStack() })
             }
         }
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun Nav() {
-    val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: DEFAULT_ROUTE
-    Scaffold(
-        bottomBar = {
-            AnimatedVisibility(MAIN_ROUTES.indexOf(currentRoute) != -1) {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = currentRoute == AccountRoute,
-                        onClick = {
-                            navController.navigate(AccountRoute) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.Filled.AccountCircle, contentDescription = null) },
-                        label = { Text("Account") })
-                    NavigationBarItem(
-                        selected = currentRoute == SearchRoute,
-                        onClick = {
-                            navController.navigate(SearchRoute) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                        label = { Text("Search") })
-                    NavigationBarItem(
-                        selected = currentRoute == HomeRoute,
-                        onClick = {
-                            navController.navigate(HomeRoute) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                        label = { Text("Home") })
-                    NavigationBarItem(
-                        selected = currentRoute == SavedRoute,
-                        onClick = {
-                            navController.navigate(SavedRoute) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.Filled.ShoppingCart, contentDescription = null) },
-                        label = { Text("Saved") })
-                }
-            }
-        }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = DEFAULT_ROUTE,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            composable(HomeRoute) {
-                HomeScreen { ref -> navController.navigate(BookRoute(ref)) }
-            }
-            composable(SearchRoute) { Text("Search") }
-            composable(AccountRoute) { Text("Account") }
-            composable(SavedRoute) { Text("Saved") }
-            composable<BookRoute> { backStackEntry ->
-                val bookRoute: BookRoute = backStackEntry.toRoute()
-                BookScreen(bookRoute)
-            }
-        }
-    }
+private fun NavHostController.switchTab(route: Any) = navigate(route) {
+    popUpTo(graph.findStartDestination().id) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
 }

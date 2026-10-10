@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.room)
 }
 
 android {
@@ -18,14 +19,23 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            // the host machine as seen from the emulator; overridable in Settings
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
+        }
         release {
-            isMinifyEnabled = false
+            buildConfigField(
+                "String", "API_BASE_URL",
+                "\"${providers.gradleProperty("sefaria.apiBaseUrl").getOrElse("https://sefaria.invalid")}\""
+            )
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -39,6 +49,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -48,10 +59,12 @@ kotlin {
     }
 }
 
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.material)
     implementation(libs.okhttp)
     implementation(libs.hilt.android)
     implementation(libs.androidx.navigation.compose)
@@ -63,15 +76,17 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.paging.runtime)
-    implementation(libs.androidx.paging.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.material.icons.extended.android)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.sqlite.bundled)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.datastore.preferences)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.mockk)
-    kspTest(libs.hilt.android.compiler)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     androidTestImplementation(libs.androidx.junit)

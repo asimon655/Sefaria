@@ -2,14 +2,36 @@ package org.asimon.sefaria
 
 import kotlinx.serialization.Serializable
 
-const val HomeRoute = "home"
-const val AccountRoute = "account"
-const val SearchRoute = "search"
-const val SavedRoute = "saved"
-@Serializable
-data class BookRoute(
-    val ref: String,
-)
+/** Type-safe navigation routes. */
 
-const val DEFAULT_ROUTE = HomeRoute
-val MAIN_ROUTES: List<String> = listOf(HomeRoute, AccountRoute, SearchRoute, SavedRoute)
+/** A level of the library tree; [path] is the category names joined by [SEP] ("" = top). */
+@Serializable
+data class LibraryRoute(val path: String = "") {
+    val names get() = if (path.isEmpty()) emptyList() else path.split(SEP)
+
+    fun child(name: String) = LibraryRoute(if (path.isEmpty()) name else path + SEP + name)
+
+    companion object {
+        const val SEP = "|"
+    }
+}
+
+@Serializable
+data class BookRoute(val title: String)
+
+/**
+ * The reader for [book], opened at [ref] (any ref form the server returns: book, node,
+ * section, segment or range). [highlight] marks the target segment (search results,
+ * bookmarks) but not a restored reading position.
+ */
+@Serializable
+data class ReaderRoute(val book: String, val ref: String, val highlight: Boolean = true)
+
+@Serializable
+data object SearchRoute
+
+@Serializable
+data object SavedRoute
+
+@Serializable
+data object SettingsRoute

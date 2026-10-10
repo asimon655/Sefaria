@@ -1,0 +1,208 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "0905b1973549a0a6d65b9b137493126b",
+    "entities": [
+      {
+        "tableName": "cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `json` TEXT NOT NULL, `etag` TEXT, `fetched_at` INTEGER NOT NULL, `last_access` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "json",
+            "columnName": "json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetched_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAccess",
+            "columnName": "last_access",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "bookmark",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `book` TEXT NOT NULL, `ref` TEXT NOT NULL, `label` TEXT NOT NULL, `he_label` TEXT NOT NULL, `preview` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "book",
+            "columnName": "book",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ref",
+            "columnName": "ref",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "heLabel",
+            "columnName": "he_label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preview",
+            "columnName": "preview",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_bookmark_ref",
+            "unique": true,
+            "columnNames": [
+              "ref"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_bookmark_ref` ON `${TABLE_NAME}` (`ref`)"
+          }
+        ]
+      },
+      {
+        "tableName": "history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `book` TEXT NOT NULL, `ref` TEXT NOT NULL, `label` TEXT NOT NULL, `he_label` TEXT NOT NULL, `visited_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "book",
+            "columnName": "book",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ref",
+            "columnName": "ref",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "heLabel",
+            "columnName": "he_label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "visitedAt",
+            "columnName": "visited_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_history_visited_at",
+            "unique": false,
+            "columnNames": [
+              "visited_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_history_visited_at` ON `${TABLE_NAME}` (`visited_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "reading_position",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`book` TEXT NOT NULL, `ref` TEXT NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`book`))",
+        "fields": [
+          {
+            "fieldPath": "book",
+            "columnName": "book",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ref",
+            "columnName": "ref",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "book"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0905b1973549a0a6d65b9b137493126b')"
+    ]
+  }
+}
