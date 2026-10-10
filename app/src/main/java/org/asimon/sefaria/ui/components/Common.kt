@@ -1,5 +1,7 @@
 package org.asimon.sefaria.ui.components
 
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,13 +36,13 @@ fun ErrorMessage(message: String, onRetry: (() -> Unit)?, modifier: Modifier = M
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(message, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
-        if (onRetry != null) Button(onClick = onRetry) { Text("Retry") }
+        if (onRetry != null) Button(onClick = onRetry) { Text(stringResource(R.string.retry)) }
     }
 }
 
 @Composable
 fun BackButton(onBack: () -> Unit) {
-    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
 }
 
 /** An English title with its Hebrew title underneath (either may be empty). */

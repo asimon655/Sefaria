@@ -6,6 +6,7 @@ import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
+import org.asimon.sefaria.data.repo.AppError
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.Load
@@ -73,7 +74,7 @@ class CachedFetcherTest {
     @Test
     fun errorsWithoutCache() = runTest {
         val r = fetcher.get("k", { it }, respond(ApiResult.Failure(ApiError.Http(404, "ref_not_found", "unknown title"))))
-        assertEquals(Load.Err("unknown title", notFound = true), r)
+        assertEquals(Load.Err(AppError.NotFound("unknown title")), r)
         assertNull(cache.rows["k"])
     }
 }

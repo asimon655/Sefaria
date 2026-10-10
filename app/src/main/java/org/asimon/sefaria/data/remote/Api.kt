@@ -25,12 +25,6 @@ sealed interface ApiError {
     data class BadResponse(val message: String) : ApiError
 }
 
-fun ApiError.describe(): String = when (this) {
-    is ApiError.Http -> message.ifEmpty { "HTTP $status" }
-    is ApiError.Network -> "Can't reach the server"
-    is ApiError.BadResponse -> "Unexpected response: $message"
-}
-
 /**
  * The /v1 API client. [baseUrl] is read on every call so the server URL can change in
  * Settings without restarting. Conditional requests use the cached ETag (the build id).

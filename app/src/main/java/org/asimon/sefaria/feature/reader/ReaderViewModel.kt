@@ -1,5 +1,6 @@
 package org.asimon.sefaria.feature.reader
 
+import org.asimon.sefaria.data.repo.AppError
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -62,12 +63,12 @@ data class ReaderState(
     val bookTitle: String = "",
     val items: List<ReaderItem> = emptyList(),
     val loading: Boolean = true,
-    val error: String? = null,
+    val error: AppError? = null,
     val offline: Boolean = false,
     val loadingPrev: Boolean = false,
     val loadingNext: Boolean = false,
-    val prevError: String? = null,
-    val nextError: String? = null,
+    val prevError: AppError? = null,
+    val nextError: AppError? = null,
     val atStart: Boolean = false,
     val atEnd: Boolean = false,
     /** Set once after the first load: the item to scroll to. Consumed by [ReaderViewModel.initialScrollDone]. */
@@ -129,14 +130,14 @@ class ReaderViewModel @Inject constructor(
         _state.value = ReaderState(bookTitle = route.book)
         val b = when (val r = library.book(route.book)) {
             is Load.Ok -> r.value
-            is Load.Err -> return@launch fail(r.message)
+            is Load.Err -> return@launch fail(r.error)
         }
         book = b
         val target = Ref.parseOrNull(Catalog(listOf(b)), route.ref) ?: Ref(b, b.root)
         val section = try {
             target.openSection()
         } catch (e: RefException) {
-            try { Ref(b, b.root).openSection() } catch (_: RefException) { return@launch fail("This book has no text") }
+            try { Ref(b, b.root).openSection() } catch (_: RefException) { return@launch fail(AppError.NoText) }
         }
         val focus: Int? = runCatching {
             if (target.isSegment || target.isRange) target.slots() else null
@@ -150,7 +151,7 @@ class ReaderViewModel @Inject constructor(
                 chunks.add(Chunk(section, r.value))
                 _state.update { it.copy(offline = r.offline) }
             }
-            is Load.Err -> return@launch fail(r.message)
+            is Load.Err -> return@launch fail(r.error)
         }
         val items = publish()
         val start = section.slots().first
@@ -188,7 +189,7 @@ class ReaderViewModel @Inject constructor(
                     publish()
                     _state.update { it.copy(loadingNext = false, offline = it.offline || r.offline) }
                 }
-                is Load.Err -> _state.update { it.copy(loadingNext = false, nextError = r.message) }
+                is Load.Err -> _state.update { it.copy(loadingNext = false, nextError = r.error) }
             }
         }
     }
@@ -206,7 +207,7 @@ class ReaderViewModel @Inject constructor(
                     publish()
                     _state.update { it.copy(loadingPrev = false, offline = it.offline || r.offline) }
                 }
-                is Load.Err -> _state.update { it.copy(loadingPrev = false, prevError = r.message) }
+                is Load.Err -> _state.update { it.copy(loadingPrev = false, prevError = r.error) }
             }
         }
     }
@@ -223,7 +224,7 @@ class ReaderViewModel @Inject constructor(
     fun setCantillation(v: Boolean) = viewModelScope.launch { settings.setCantillation(v) }
     fun setTheme(v: ThemeMode) = viewModelScope.launch { settings.setTheme(v) }
 
-    private fun fail(message: String) = _state.update { it.copy(loading = false, error = message) }
+    private fun fail(error: AppError) = _state.update { it.copy(loading = false, error = error) }
 
     private suspend fun publish(): List<ReaderItem> {
         val b = book ?: return emptyList()

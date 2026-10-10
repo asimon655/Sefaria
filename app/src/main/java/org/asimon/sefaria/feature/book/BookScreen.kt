@@ -1,5 +1,12 @@
 package org.asimon.sefaria.feature.book
 
+import org.asimon.sefaria.ui.components.screenAlign
+import org.asimon.sefaria.ui.components.text
+import org.asimon.sefaria.ui.components.other
+import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.data.repo.AppError
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -71,7 +78,7 @@ import org.asimon.sefaria.ui.components.ErrorMessage
 import org.asimon.sefaria.ui.components.Loading
 import javax.inject.Inject
 
-data class BookState(val book: Book? = null, val error: String? = null)
+data class BookState(val book: Book? = null, val error: AppError? = null)
 
 @HiltViewModel
 class BookViewModel @Inject constructor(
@@ -92,7 +99,7 @@ class BookViewModel @Inject constructor(
         _state.value = BookState()
         _state.value = when (val r = library.book(title)) {
             is Load.Ok -> BookState(r.value)
-            is Load.Err -> BookState(error = r.message)
+            is Load.Err -> BookState(error = r.error)
         }
     }
 }
@@ -106,14 +113,14 @@ fun BookScreen(onOpen: (ReaderRoute) -> Unit, onBack: () -> Unit, vm: BookViewMo
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(s.book?.title ?: vm.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(s.book?.let { pick(it.title, it.he) } ?: vm.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton(onBack) },
             )
         },
     ) { padding ->
         val book = s.book
         when {
-            s.error != null -> ErrorMessage(s.error!!, vm::load, Modifier.padding(padding))
+            s.error != null -> ErrorMessage(s.error!!.text(), vm::load, Modifier.padding(padding))
             book == null -> Loading(Modifier.padding(padding))
             else -> {
                 var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -125,17 +132,17 @@ fun BookScreen(onOpen: (ReaderRoute) -> Unit, onBack: () -> Unit, vm: BookViewMo
                         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val pos = position
                             if (pos != null) {
-                                Button(onClick = { onOpen(ReaderRoute(book.title, pos.ref, highlight = false)) }) { Text("Continue reading") }
-                                OutlinedButton(onClick = { open(book.title) }) { Text("Start") }
+                                Button(onClick = { onOpen(ReaderRoute(book.title, pos.ref, highlight = false)) }) { Text(stringResource(R.string.continue_reading)) }
+                                OutlinedButton(onClick = { open(book.title) }) { Text(stringResource(R.string.start)) }
                             } else {
-                                Button(onClick = { open(book.title) }) { Text("Start reading") }
+                                Button(onClick = { open(book.title) }) { Text(stringResource(R.string.start_reading)) }
                             }
                         }
                     }
                     if (alt != null) item {
                         PrimaryTabRow(selectedTabIndex = tab) {
-                            Tab(tab == 0, onClick = { tab = 0 }, text = { Text("Contents") })
-                            Tab(tab == 1, onClick = { tab = 1 }, text = { Text(if (alt.key == "Parasha") "Parashot" else alt.key) })
+                            Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.contents)) })
+                            Tab(tab == 1, onClick = { tab = 1 }, text = { Text(if (alt.key == "Parasha") stringResource(R.string.parashot) else alt.key) })
                         }
                     }
                     if (alt != null && tab == 1) {
@@ -153,14 +160,16 @@ fun BookScreen(onOpen: (ReaderRoute) -> Unit, onBack: () -> Unit, vm: BookViewMo
 @Composable
 private fun Header(book: Book) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(book.he, style = MaterialTheme.typography.headlineMedium.copy(textDirection = TextDirection.Rtl), modifier = Modifier.fillMaxWidth())
+        // the top bar has the title in the interface language; show the other one here
+        val second = other(book.title, book.he)
+        if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.headlineMedium.copy(textDirection = TextDirection.Content), textAlign = screenAlign(), modifier = Modifier.fillMaxWidth())
         if (book.dto.categories.isNotEmpty()) Text(
             book.dto.categories.joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
         )
         if (book.dto.authors.isNotEmpty()) Text(book.dto.authors.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
-        val desc = book.dto.desc.en.ifEmpty { book.dto.shortDesc.en }
+        val desc = pick(book.dto.desc.en, book.dto.desc.he).ifEmpty { pick(book.dto.shortDesc.en, book.dto.shortDesc.he) }
         if (desc.isNotEmpty()) {
             var expanded by rememberSaveable { mutableStateOf(false) }
             Text(
@@ -191,7 +200,7 @@ private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) ->
         val nodeRef = Ref(book, node)
         if (shape == null || node.depth < 2) {
             if (!top) return // a depth-1 node is opened from its title row
-            OutlinedButton(onClick = { open(nodeRef.url()) }, Modifier.padding(16.dp)) { Text("Open") }
+            OutlinedButton(onClick = { open(nodeRef.url()) }, Modifier.padding(16.dp)) { Text(stringResource(R.string.open)) }
             return
         }
         // Hebrew numbering reads right to left
@@ -261,13 +270,13 @@ private fun Versions(book: Book) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.padding(16.dp)) {
         Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
-            Text("Versions (${book.dto.versions.size})", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.versions, book.dto.versions.size), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
             Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
         }
         if (expanded) for (v in book.dto.versions.sortedWith(compareBy({ it.lang }, { !it.default }))) {
             Column(Modifier.padding(vertical = 6.dp)) {
                 Text(
-                    (if (v.default) "★ " else "") + v.title,
+                    (if (v.default) "★ " else "") + pick(v.title, v.he),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(

@@ -1,5 +1,11 @@
 package org.asimon.sefaria.feature.search
 
+import org.asimon.sefaria.ui.components.other
+import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.ui.components.text
+import org.asimon.sefaria.data.repo.AppError
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,7 +48,8 @@ import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.data.repo.Load
 import javax.inject.Inject
 
-data class SearchState(val query: String = "", val result: ResolveDto? = null, val message: String? = null)
+/** [error] belongs to [errorQuery], which may lag behind [query] while typing. */
+data class SearchState(val query: String = "", val result: ResolveDto? = null, val error: AppError? = null, val errorQuery: String = "")
 
 /** v1 search is a ref/title jump via /v1/resolve; full-text search arrives in Phase 6. */
 @OptIn(FlowPreview::class)
@@ -64,11 +71,11 @@ class SearchViewModel @Inject constructor(private val library: LibraryRepository
     }
 
     private suspend fun resolve(q: String) {
-        if (q.isBlank()) return _state.update { it.copy(result = null, message = null) }
+        if (q.isBlank()) return _state.update { it.copy(result = null, error = null) }
         _state.update {
             when (val r = library.resolve(q.trim())) {
-                is Load.Ok -> it.copy(result = r.value, message = null)
-                is Load.Err -> it.copy(result = null, message = if (r.notFound) "No book or ref matches “$q”" else r.message)
+                is Load.Ok -> it.copy(result = r.value, error = null)
+                is Load.Err -> it.copy(result = null, error = r.error, errorQuery = q.trim())
             }
         }
     }
@@ -79,7 +86,7 @@ class SearchViewModel @Inject constructor(private val library: LibraryRepository
 fun SearchScreen(onOpen: (Any) -> Unit, vm: SearchViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val open = { r: ResolveDto -> onOpen(if (r.kind == "book") BookRoute(r.book) else ReaderRoute(r.book, r.ref)) }
-    Scaffold(topBar = { TopAppBar(title = { Text("Search") }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_search)) }) }) { padding ->
         Column(Modifier.padding(padding).padding(16.dp)) {
             OutlinedTextField(
                 value = s.query,
@@ -87,20 +94,21 @@ fun SearchScreen(onOpen: (Any) -> Unit, vm: SearchViewModel = hiltViewModel()) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                placeholder = { Text("Genesis 1:1 · Ber 2a · בראשית א") },
+                placeholder = { Text(stringResource(R.string.search_hint)) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { s.result?.let(open) }),
             )
             s.result?.let { r ->
                 ListItem(
-                    headlineContent = { Text("Go to ${r.human.ifEmpty { r.ref }}") },
-                    supportingContent = { Text(r.heRef, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Rtl)) },
+                    headlineContent = { Text(stringResource(R.string.go_to, pick(r.human.ifEmpty { r.ref }, r.heRef))) },
+                    supportingContent = { Text(other(r.human.ifEmpty { r.ref }, r.heRef), style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content)) },
                     trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
                     modifier = Modifier.clickable { open(r) },
                 )
             }
-            s.message?.let {
-                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
+            s.error?.let { e ->
+                val msg = if (e is AppError.NotFound) stringResource(R.string.no_match, s.errorQuery) else e.text()
+                Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
             }
         }
     }

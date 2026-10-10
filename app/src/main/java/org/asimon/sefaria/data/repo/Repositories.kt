@@ -23,12 +23,27 @@ import org.asimon.sefaria.data.remote.TextDto
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.remote.VersionDto
 import org.asimon.sefaria.data.remote.VersionSelection
-import org.asimon.sefaria.data.remote.describe
 
 /** A loaded value, or an error to show. [offline] marks a cached value served because the network failed. */
 sealed interface Load<out T> {
     data class Ok<T>(val value: T, val offline: Boolean = false) : Load<T>
-    data class Err(val message: String, val notFound: Boolean = false) : Load<Nothing>
+    data class Err(val error: AppError) : Load<Nothing>
+}
+
+/** Errors the UI can show; it turns them into localized text (ui/components/Errors.kt). */
+sealed interface AppError {
+    data object Network : AppError
+    /** The server does not know this book or ref (400/404). [detail] is the server's English message. */
+    data class NotFound(val detail: String) : AppError
+    data class Server(val status: Int, val detail: String) : AppError
+    data class BadResponse(val detail: String) : AppError
+    data object NoText : AppError
+}
+
+fun ApiError.toAppError(): AppError = when (this) {
+    is ApiError.Network -> AppError.Network
+    is ApiError.Http -> if (status == 400 || status == 404) AppError.NotFound(message) else AppError.Server(status, message)
+    is ApiError.BadResponse -> AppError.BadResponse(message)
 }
 
 inline fun <T, R> Load<T>.map(f: (T) -> R): Load<R> = when (this) {
@@ -80,7 +95,7 @@ class CachedFetcher(
             }
             is ApiResult.Failure ->
                 if (cached != null && r.error !is ApiError.Http) Load.Ok(decode(cached.json), offline = true)
-                else Load.Err(r.error.describe(), notFound = (r.error as? ApiError.Http)?.status == 404)
+                else Load.Err(r.error.toAppError())
         }
     }
 }
@@ -115,8 +130,8 @@ class LibraryRepository(private val api: Api, private val fetcher: CachedFetcher
 
     suspend fun resolve(q: String): Load<ResolveDto> = when (val r = api.resolve(q)) {
         is ApiResult.Ok -> Load.Ok(r.value)
-        is ApiResult.Failure -> Load.Err(r.error.describe(), notFound = (r.error as? ApiError.Http)?.status in setOf(400, 404))
-        ApiResult.NotModified -> Load.Err("unexpected 304")
+        is ApiResult.Failure -> Load.Err(r.error.toAppError())
+        ApiResult.NotModified -> Load.Err(AppError.BadResponse("unexpected 304"))
     }
 
     private fun decodeBook(json: String) = SefariaJson.decodeFromString(BookDto.serializer(), json)

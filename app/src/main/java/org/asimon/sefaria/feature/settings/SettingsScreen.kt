@@ -1,5 +1,8 @@
 package org.asimon.sefaria.feature.settings
 
+import org.asimon.sefaria.ui.components.label
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,12 +71,12 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val build by vm.build.collectAsStateWithLifecycle()
     var url by rememberSaveable(prefs.serverUrl) { mutableStateOf(prefs.serverUrl) }
-    Scaffold(topBar = { TopAppBar(title = { Text("Settings") }, navigationIcon = { BackButton(onBack) }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.settings)) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
         Column(
             Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Theme", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
             val themes = ThemeMode.entries
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 themes.forEachIndexed { i, t ->
@@ -81,26 +84,25 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
                         selected = prefs.theme == t,
                         onClick = { vm.setTheme(t) },
                         shape = SegmentedButtonDefaults.itemShape(i, themes.size),
-                    ) { Text(t.name, maxLines = 1) }
+                    ) { Text(t.label(), maxLines = 1) }
                 }
             }
             HorizontalDivider()
-            Text("Server", style = MaterialTheme.typography.titleSmall)
-            OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Server URL") })
+            Text(stringResource(R.string.server), style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.server_url)) })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { vm.setServerUrl(url) }, enabled = url != prefs.serverUrl) { Text("Save") }
-                OutlinedButton(onClick = { vm.setServerUrl("") }) { Text("Default") }
+                Button(onClick = { vm.setServerUrl(url) }, enabled = url != prefs.serverUrl) { Text(stringResource(R.string.save)) }
+                OutlinedButton(onClick = { vm.setServerUrl("") }) { Text(stringResource(R.string.use_default)) }
             }
             Text(
-                "Build: ${build ?: "unreachable"}",
+                stringResource(R.string.build, build ?: stringResource(R.string.unreachable)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             HorizontalDivider()
-            Text("About", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.about), style = MaterialTheme.typography.titleSmall)
             Text(
-                "Version ${BuildConfig.VERSION_NAME}. Texts come from the Sefaria library; each version " +
-                    "carries its own license, listed on the book page.",
+                stringResource(R.string.about_text, BuildConfig.VERSION_NAME),
                 style = MaterialTheme.typography.bodySmall,
             )
         }

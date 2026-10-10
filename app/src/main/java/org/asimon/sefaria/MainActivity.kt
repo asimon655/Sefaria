@@ -1,5 +1,7 @@
 package org.asimon.sefaria
 
+import androidx.compose.ui.res.stringResource
+import androidx.annotation.StringRes
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -55,12 +57,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Tab(val route: Any, val type: KClass<*>, val label: String, val icon: ImageVector)
+private data class Tab(val route: Any, val type: KClass<*>, @StringRes val label: Int, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab(LibraryRoute(), LibraryRoute::class, "Library", Icons.AutoMirrored.Outlined.LibraryBooks),
-    Tab(SearchRoute, SearchRoute::class, "Search", Icons.Outlined.Search),
-    Tab(SavedRoute, SavedRoute::class, "Saved", Icons.Outlined.Bookmarks),
+    Tab(LibraryRoute(), LibraryRoute::class, R.string.tab_library, Icons.AutoMirrored.Outlined.LibraryBooks),
+    Tab(SearchRoute, SearchRoute::class, R.string.tab_search, Icons.Outlined.Search),
+    Tab(SavedRoute, SavedRoute::class, R.string.tab_saved, Icons.Outlined.Bookmarks),
 )
 
 @Composable
@@ -79,7 +81,7 @@ private fun AppNav() {
                         selected = selected,
                         onClick = { nav.switchTab(tab.route) },
                         icon = { Icon(tab.icon, contentDescription = null) },
-                        label = { Text(tab.label) },
+                        label = { Text(stringResource(tab.label)) },
                     )
                 }
             }

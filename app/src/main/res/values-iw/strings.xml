@@ -1,0 +1,72 @@
+<resources>
+    <string name="app_name">ספריא</string>
+
+    <!-- navigation -->
+    <string name="tab_library">ספרייה</string>
+    <string name="tab_search">חיפוש</string>
+    <string name="tab_saved">שמורים</string>
+    <string name="settings">הגדרות</string>
+    <string name="back">חזרה</string>
+    <string name="retry">ניסיון חוזר</string>
+
+    <!-- book -->
+    <string name="continue_reading">המשך קריאה</string>
+    <string name="start">מההתחלה</string>
+    <string name="start_reading">התחלת קריאה</string>
+    <string name="contents">תוכן</string>
+    <string name="parashot">פרשות</string>
+    <string name="open">פתיחה</string>
+    <string name="versions">גרסאות (%1$d)</string>
+
+    <!-- reader -->
+    <string name="offline_copy">עותק לא מקוון</string>
+    <string name="display_settings">הגדרות תצוגה</string>
+    <string name="end_of_book">סוף %1$s</string>
+    <string name="has_notes">יש הערות</string>
+    <string name="bookmark">הוספת סימנייה</string>
+    <string name="remove_bookmark">הסרת סימנייה</string>
+    <string name="copy_with_citation">העתקה עם מראה מקום</string>
+    <string name="share">שיתוף</string>
+    <string name="layout">פריסה</string>
+    <string name="layout_hebrew">עברית</string>
+    <string name="layout_english">English</string>
+    <string name="layout_both">שתיהן</string>
+    <string name="layout_side">זו לצד זו</string>
+    <string name="font_size">גודל גופן</string>
+    <string name="niqqud">ניקוד</string>
+    <string name="cantillation">טעמי המקרא</string>
+    <string name="theme">ערכת נושא</string>
+    <string name="theme_system">מערכת</string>
+    <string name="theme_light">בהיר</string>
+    <string name="theme_sepia">ספיה</string>
+    <string name="theme_dark">כהה</string>
+
+    <!-- search -->
+    <string name="search_hint">בראשית א · ברכות ב. · Genesis 1:1</string>
+    <string name="go_to">מעבר אל %1$s</string>
+    <string name="no_match">לא נמצא ספר או מקום שמתאים ל„%1$s”</string>
+
+    <!-- saved -->
+    <string name="bookmarks">סימניות</string>
+    <string name="history">היסטוריה</string>
+    <string name="clear_history">ניקוי היסטוריה</string>
+    <string name="empty_bookmarks">הקישו על פסוק בקורא כדי להוסיף סימנייה.</string>
+    <string name="empty_history">ספרים שקראתם יופיעו כאן.</string>
+
+    <!-- settings -->
+    <string name="server">שרת</string>
+    <string name="server_url">כתובת השרת</string>
+    <string name="save">שמירה</string>
+    <string name="use_default">ברירת מחדל</string>
+    <string name="build">גרסת נתונים: %1$s</string>
+    <string name="unreachable">לא זמין</string>
+    <string name="about">אודות</string>
+    <string name="about_text">גרסה %1$s. הטקסטים מגיעים מספריית ספריא; לכל גרסה רישיון משלה, המופיע בדף הספר.</string>
+
+    <!-- errors -->
+    <string name="error_network">אין חיבור לשרת</string>
+    <string name="error_not_found">לא נמצא: %1$s</string>
+    <string name="error_server">שגיאת שרת (%1$d)</string>
+    <string name="error_bad_response">תגובה לא צפויה מהשרת</string>
+    <string name="error_no_text">אין טקסט בספר זה</string>
+</resources>

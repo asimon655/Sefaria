@@ -1,5 +1,10 @@
 package org.asimon.sefaria.feature.reader
 
+import org.asimon.sefaria.ui.components.label
+import org.asimon.sefaria.ui.components.text
+import org.asimon.sefaria.data.repo.AppError
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -117,14 +122,14 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton(onBack) },
                 actions = {
-                    if (s.offline) Icon(Icons.Outlined.CloudOff, contentDescription = "Offline copy", Modifier.padding(end = 8.dp))
-                    IconButton(onClick = { showDisplay = true }) { Icon(Icons.Outlined.TextFields, contentDescription = "Display settings") }
+                    if (s.offline) Icon(Icons.Outlined.CloudOff, contentDescription = stringResource(R.string.offline_copy), Modifier.padding(end = 8.dp))
+                    IconButton(onClick = { showDisplay = true }) { Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.display_settings)) }
                 },
             )
         },
     ) { padding ->
         when {
-            s.error != null -> ErrorMessage(s.error!!, { vm.open() }, Modifier.padding(padding))
+            s.error != null -> ErrorMessage(s.error!!.text(), { vm.open() }, Modifier.padding(padding))
             s.loading -> Loading(Modifier.padding(padding))
             else -> LazyColumn(state = list, contentPadding = padding, modifier = Modifier.fillMaxWidth()) {
                 item(key = "top") {
@@ -137,7 +142,7 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
                     }
                 }
                 item(key = "bottom") {
-                    EdgeRow(loading = s.loadingNext, error = s.nextError, atEdge = s.atEnd, edgeText = "End of ${s.bookTitle}", onRetry = vm::loadNext)
+                    EdgeRow(loading = s.loadingNext, error = s.nextError, atEdge = s.atEnd, edgeText = stringResource(R.string.end_of_book, s.bookTitle), onRetry = vm::loadNext)
                 }
             }
         }
@@ -149,11 +154,11 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun EdgeRow(loading: Boolean, error: String?, atEdge: Boolean, edgeText: String, onRetry: () -> Unit) {
+private fun EdgeRow(loading: Boolean, error: AppError?, atEdge: Boolean, edgeText: String, onRetry: () -> Unit) {
     Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
         when {
             loading -> CircularProgressIndicator(Modifier.width(24.dp))
-            error != null -> TextButton(onClick = onRetry) { Text("$error · Retry") }
+            error != null -> TextButton(onClick = onRetry) { Text(error.text() + " · " + stringResource(R.string.retry)) }
             atEdge && edgeText.isNotEmpty() -> Text(edgeText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -209,7 +214,7 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
                     textAlign = TextAlign.Center,
                 )
                 if ((he?.notes.orEmpty() + en?.notes.orEmpty()).isNotEmpty()) {
-                    Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = "Has notes", Modifier.padding(top = 4.dp).width(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = stringResource(R.string.has_notes), Modifier.padding(top = 4.dp).width(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.width(6.dp))
@@ -262,12 +267,12 @@ private fun SegmentSheet(item: SegmentItem, vm: ReaderViewModel, onDismiss: () -
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             ListItem(
-                headlineContent = { Text(if (bookmarked) "Remove bookmark" else "Bookmark") },
+                headlineContent = { Text(stringResource(if (bookmarked) R.string.remove_bookmark else R.string.bookmark)) },
                 leadingContent = { Icon(if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder, contentDescription = null) },
                 modifier = Modifier.clickable { vm.toggleBookmark(item, bookmarked) },
             )
             ListItem(
-                headlineContent = { Text("Copy with citation") },
+                headlineContent = { Text(stringResource(R.string.copy_with_citation)) },
                 leadingContent = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
                 modifier = Modifier.clickable {
                     clipboard.setText(AnnotatedString(citation))
@@ -275,7 +280,7 @@ private fun SegmentSheet(item: SegmentItem, vm: ReaderViewModel, onDismiss: () -
                 },
             )
             ListItem(
-                headlineContent = { Text("Share") },
+                headlineContent = { Text(stringResource(R.string.share)) },
                 leadingContent = { Icon(Icons.Outlined.Share, contentDescription = null) },
                 modifier = Modifier.clickable {
                     val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, citation)
@@ -292,23 +297,23 @@ private fun SegmentSheet(item: SegmentItem, vm: ReaderViewModel, onDismiss: () -
 private fun DisplaySheet(prefs: Prefs, vm: ReaderViewModel, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Layout", style = MaterialTheme.typography.titleSmall)
-            val layouts = listOf(Layout.Hebrew to "עברית", Layout.English to "English", Layout.Stacked to "Both", Layout.SideBySide to "Side")
+            Text(stringResource(R.string.layout), style = MaterialTheme.typography.titleSmall)
+            val layouts = listOf(Layout.Hebrew to R.string.layout_hebrew, Layout.English to R.string.layout_english, Layout.Stacked to R.string.layout_both, Layout.SideBySide to R.string.layout_side)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 layouts.forEachIndexed { i, (l, label) ->
                     SegmentedButton(
                         selected = prefs.layout == l,
                         onClick = { vm.setLayout(l) },
                         shape = SegmentedButtonDefaults.itemShape(i, layouts.size),
-                    ) { Text(label, maxLines = 1) }
+                    ) { Text(stringResource(label), maxLines = 1) }
                 }
             }
-            Text("Font size", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.font_size), style = MaterialTheme.typography.titleSmall)
             var scale by remember { mutableStateOf(prefs.fontScale) }
             Slider(value = scale, onValueChange = { scale = it }, onValueChangeFinished = { vm.setFontScale(scale) }, valueRange = 0.7f..2f)
-            SwitchRow("Vowels (niqqud)", prefs.niqqud, vm::setNiqqud)
-            SwitchRow("Cantillation (te'amim)", prefs.cantillation, vm::setCantillation)
-            Text("Theme", style = MaterialTheme.typography.titleSmall)
+            SwitchRow(stringResource(R.string.niqqud), prefs.niqqud, vm::setNiqqud)
+            SwitchRow(stringResource(R.string.cantillation), prefs.cantillation, vm::setCantillation)
+            Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
             val themes = ThemeMode.entries
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 themes.forEachIndexed { i, t ->
@@ -316,7 +321,7 @@ private fun DisplaySheet(prefs: Prefs, vm: ReaderViewModel, onDismiss: () -> Uni
                         selected = prefs.theme == t,
                         onClick = { vm.setTheme(t) },
                         shape = SegmentedButtonDefaults.itemShape(i, themes.size),
-                    ) { Text(t.name, maxLines = 1) }
+                    ) { Text(t.label(), maxLines = 1) }
                 }
             }
         }

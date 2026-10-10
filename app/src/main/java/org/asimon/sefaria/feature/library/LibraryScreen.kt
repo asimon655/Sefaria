@@ -1,5 +1,12 @@
 package org.asimon.sefaria.feature.library
 
+import org.asimon.sefaria.ui.components.screenAlign
+import org.asimon.sefaria.ui.components.text
+import org.asimon.sefaria.ui.components.other
+import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.data.repo.AppError
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,7 +53,7 @@ data class LibraryState(
     val route: LibraryRoute,
     val title: TocNodeDto? = null, // the category shown; null at the top level
     val items: List<TocNodeDto>? = null,
-    val error: String? = null,
+    val error: AppError? = null,
 )
 
 @HiltViewModel
@@ -63,7 +70,7 @@ class LibraryViewModel @Inject constructor(
     fun load() = viewModelScope.launch {
         _state.value = LibraryState(route)
         _state.value = when (val r = library.toc()) {
-            is Load.Err -> LibraryState(route, error = r.message)
+            is Load.Err -> LibraryState(route, error = r.error)
             is Load.Ok -> {
                 var nodes = r.value.tree
                 var title: TocNodeDto? = null
@@ -90,22 +97,23 @@ fun LibraryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(s.title?.en ?: "Library", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(s.title?.let { pick(it.en, it.he) } ?: stringResource(R.string.tab_library), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { if (s.route.names.isNotEmpty()) BackButton(onBack) },
                 actions = {
-                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
+                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings)) }
                 },
             )
         },
     ) { padding ->
         val items = s.items
         when {
-            s.error != null -> ErrorMessage(s.error!!, vm::load, Modifier.padding(padding))
+            s.error != null -> ErrorMessage(s.error!!.text(), vm::load, Modifier.padding(padding))
             items == null -> Loading(Modifier.padding(padding))
-            else -> LazyColumn(contentPadding = padding) {
-                s.title?.let { t ->
-                    val desc = t.desc.en.ifEmpty { t.short.en }
-                    if (desc.isNotEmpty()) item {
+            else -> {
+              val desc = s.title?.let { t -> pick(t.desc.en, t.desc.he).ifEmpty { pick(t.short.en, t.short.he) } }.orEmpty()
+              LazyColumn(contentPadding = padding) {
+                if (desc.isNotEmpty()) {
+                    item {
                         Text(
                             desc.trim(),
                             style = MaterialTheme.typography.bodyMedium,
@@ -118,6 +126,7 @@ fun LibraryScreen(
                     TocRow(node) { if (node.isBook) onBook(node.title) else onCategory(s.route.child(node.en)) }
                     HorizontalDivider()
                 }
+              }
             }
         }
     }
@@ -133,17 +142,21 @@ private fun TocRow(node: TocNodeDto, onClick: () -> Unit) {
     ) {
         val en = if (node.isBook) node.title else node.en
         Text(
-            en,
+            pick(en, node.he),
             style = if (node.isBook) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
             color = if (node.isBook) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
         )
-        if (node.he.isNotEmpty()) Text(
-            node.he,
-            style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Rtl),
+        val second = other(en, node.he)
+        if (second.isNotEmpty()) Text(
+            second,
+            style = MaterialTheme.typography.titleMedium.copy(textDirection = TextDirection.Content),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = screenAlign(),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (node.short.en.isNotEmpty()) Text(
-            node.short.en,
+        val short = pick(node.short.en, node.short.he)
+        if (short.isNotEmpty()) Text(
+            short,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,

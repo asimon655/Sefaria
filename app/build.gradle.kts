@@ -47,6 +47,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    androidResources {
+        // only the app's languages, so library strings never appear in a third language
+        localeFilters += listOf("en", "iw")
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

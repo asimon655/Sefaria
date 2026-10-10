@@ -1,5 +1,7 @@
 package org.asimon.sefaria.feature.saved
 
+import androidx.compose.ui.res.stringResource
+import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -61,10 +63,10 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Saved") },
+                title = { Text(stringResource(R.string.tab_saved)) },
                 actions = {
                     if (tab == 1 && history.isNotEmpty()) IconButton(onClick = vm::clearHistory) {
-                        Icon(Icons.Outlined.DeleteSweep, contentDescription = "Clear history")
+                        Icon(Icons.Outlined.DeleteSweep, contentDescription = stringResource(R.string.clear_history))
                     }
                 },
             )
@@ -72,12 +74,12 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
     ) { padding ->
         Column(Modifier.padding(padding)) {
             PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(tab == 0, onClick = { tab = 0 }, text = { Text("Bookmarks") })
-                Tab(tab == 1, onClick = { tab = 1 }, text = { Text("History") })
+                Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.bookmarks)) })
+                Tab(tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.history)) })
             }
             val empty = if (tab == 0) bookmarks.isEmpty() else history.isEmpty()
             if (empty) Text(
-                if (tab == 0) "Tap a verse in the reader to bookmark it." else "Books you read appear here.",
+                stringResource(if (tab == 0) R.string.empty_bookmarks else R.string.empty_history),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(24.dp),
             )
