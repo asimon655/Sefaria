@@ -23,6 +23,19 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 
 Run the server for the emulator: `cd /Volumes/KINGSTON/sefaria_dev/server && go run ./cmd/sefaria-server -addr :8080`. The server URL can be changed in Settings.
 
+## Emulator (lives on the KINGSTON drive)
+
+The system image is in `/Volumes/KINGSTON/android/system-images` (symlinked from the SDK). The AVD
+`Sefaria_API_36` lives in an APFS disk image, `/Volumes/KINGSTON/android/avd.sparsebundle`, because exFAT
+lacks the hard links the emulator uses for its lock files. The disk image is mounted at `~/.android/avd`.
+After a reboot or replugging the drive, mount it again before starting the emulator (or Android Studio's
+device manager):
+
+```sh
+hdiutil attach -nobrowse -mountpoint ~/.android/avd /Volumes/KINGSTON/android/avd.sparsebundle
+~/Library/Android/sdk/emulator/emulator -avd Sefaria_API_36 -no-audio &
+```
+
 ## Test fixtures
 
 `app/src/test/resources/fixtures/` holds JSON recorded from the real server plus `vectors.tsv` and `fixture_catalog.json`, copied from `server/internal/ref/testdata`. When the server's API or ref model changes, re-record and re-copy them.

@@ -200,13 +200,18 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
                 .semantics { contentDescription = item.ref.human() }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            Text(
-                item.label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(min = 28.dp).padding(top = 6.dp),
-            )
+            // the number, with a notes marker under it, so text columns stay aligned
+            Column(Modifier.widthIn(min = 28.dp).padding(top = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    item.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                if ((he?.notes.orEmpty() + en?.notes.orEmpty()).isNotEmpty()) {
+                    Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = "Has notes", Modifier.padding(top = 4.dp).width(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Spacer(Modifier.width(6.dp))
             val scale = prefs.fontScale
             when (prefs.layout) {
@@ -220,9 +225,6 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
                     if (en != null) SegText(en, enStyle(scale), Modifier.weight(1f))
                     if (he != null) SegText(he, heStyle(scale), Modifier.weight(1f))
                 }
-            }
-            if ((he?.notes.orEmpty() + en?.notes.orEmpty()).isNotEmpty()) {
-                Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = "Has notes", Modifier.padding(top = 6.dp).width(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
