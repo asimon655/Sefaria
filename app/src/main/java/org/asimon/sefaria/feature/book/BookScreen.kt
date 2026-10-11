@@ -4,6 +4,8 @@ import org.asimon.sefaria.ui.components.screenAlign
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.ui.components.other
 import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.ui.components.prose
+import org.asimon.sefaria.ui.components.hebrewUi
 import org.asimon.sefaria.data.repo.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
@@ -120,7 +122,7 @@ fun BookScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(s.book?.let { pick(it.title, it.he) } ?: vm.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(s.book?.let { pick(it.title, it.he) } ?: if (hebrewUi()) "" else vm.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton(onBack) },
             )
         },
@@ -150,13 +152,13 @@ fun BookScreen(
                     if (alt != null) item {
                         PrimaryTabRow(selectedTabIndex = tab) {
                             Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.contents)) })
-                            Tab(tab == 1, onClick = { tab = 1 }, text = { Text(if (alt.key == "Parasha") stringResource(R.string.parashot) else alt.key) })
+                            Tab(tab == 1, onClick = { tab = 1 }, text = { Text(altTitle(alt.key)) })
                         }
                     }
                     if (alt != null && tab == 1) {
-                        altNodes(alt.value, prefs.hebrewLabels, open)
+                        altNodes(alt.value, open)
                     } else {
-                        item { Structure(book, book.root, prefs.hebrewLabels, open, top = true) }
+                        item { Structure(book, book.root, hebrewUi(), open, top = true) }
                     }
                     item { Versions(book) }
                 }
@@ -165,19 +167,36 @@ fun BookScreen(
     }
 }
 
+// Hebrew names of the common alternate structures (the server sends only English keys)
+private val altHe = mapOf(
+    "Parasha" to "פרשות", "Chapters" to "פרקים", "Chapter" to "פרקים", "Topic" to "נושאים",
+    "Letter" to "מכתבים", "Venice" to "דפוס ונציה", "Vilna" to "דפוס וילנא", "Pages" to "דפים",
+    "Daf" to "דפים", "Gate" to "שערים", "Book" to "ספרים", "Contents" to "תוכן", "Siman" to "סימנים",
+    "Section" to "חלקים", "Daf Yomi" to "דף יומי",
+)
+
+@Composable
+private fun altTitle(key: String): String = when {
+    key == "Parasha" -> stringResource(R.string.parashot)
+    hebrewUi() -> altHe[key] ?: stringResource(R.string.other_divisions)
+    else -> key
+}
+
 @Composable
 private fun Header(book: Book) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // the top bar has the title in the interface language; show the other one here
         val second = other(book.title, book.he)
         if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.headlineMedium.copy(textDirection = TextDirection.Content), textAlign = screenAlign(), modifier = Modifier.fillMaxWidth())
-        if (book.dto.categories.isNotEmpty()) Text(
-            book.dto.categories.joinToString(" · "),
+        val categories = if (hebrewUi()) book.dto.heCategories else book.dto.categories
+        if (categories.isNotEmpty()) Text(
+            categories.joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
         )
-        if (book.dto.authors.isNotEmpty()) Text(book.dto.authors.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
-        val desc = pick(book.dto.desc.en, book.dto.desc.he).ifEmpty { pick(book.dto.shortDesc.en, book.dto.shortDesc.he) }
+        // older builds send only slugs ("joseph-karo"), which are not worth showing
+        if (book.dto.authorNames.isNotEmpty()) Text(book.dto.authorNames.map { pick(it.en, it.he) }.joinToString(", "), style = MaterialTheme.typography.bodyMedium)
+        val desc = prose(book.dto.desc.en, book.dto.desc.he).ifEmpty { prose(book.dto.shortDesc.en, book.dto.shortDesc.he) }
         if (desc.isNotEmpty()) {
             var expanded by rememberSaveable { mutableStateOf(false) }
             Text(
@@ -258,7 +277,7 @@ private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) ->
     }
 }
 
-private fun LazyListScope.altNodes(nodes: List<AltNodeDto>, hebrew: Boolean, open: (String) -> Unit) {
+private fun LazyListScope.altNodes(nodes: List<AltNodeDto>, open: (String) -> Unit) {
     items(nodes) { n ->
         Row(
             Modifier
@@ -266,8 +285,9 @@ private fun LazyListScope.altNodes(nodes: List<AltNodeDto>, hebrew: Boolean, ope
                 .clickable(enabled = n.ref.isNotEmpty()) { open(n.ref) }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            Text(n.en, Modifier.weight(1f))
-            if (n.he.isNotEmpty()) Text(n.he, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Rtl))
+            Text(pick(n.en, n.he), Modifier.weight(1f))
+            val second = other(n.en, n.he)
+            if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Rtl))
         }
         HorizontalDivider()
     }

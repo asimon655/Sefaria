@@ -49,9 +49,11 @@ data class BookDto(
     val he: String = "",
     @SerialName("alt_titles") val altTitles: List<String> = emptyList(),
     val categories: List<String> = emptyList(),
+    @SerialName("he_categories") val heCategories: List<String> = emptyList(),
     val dependence: String = "",
     @SerialName("base_text_titles") val baseTextTitles: List<String> = emptyList(),
-    val authors: List<String> = emptyList(),
+    val authors: List<String> = emptyList(), // slugs
+    @SerialName("author_names") val authorNames: List<Bilingual> = emptyList(),
     val desc: Bilingual = Bilingual(),
     @SerialName("short_desc") val shortDesc: Bilingual = Bilingual(),
     val schema: NodeDto,

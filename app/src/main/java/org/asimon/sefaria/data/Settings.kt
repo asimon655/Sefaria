@@ -23,10 +23,7 @@ data class Prefs(
     val niqqud: Boolean = true,
     val cantillation: Boolean = true,
     val theme: ThemeMode = ThemeMode.System,
-) {
-    /** Hebrew labels (segment numbers, section names) unless the layout is English only. */
-    val hebrewLabels get() = layout != Layout.English
-}
+)
 
 /** User preferences (DataStore). [prefs] is hot so composables and view models read it synchronously. */
 class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope, private val defaultUrl: String) {

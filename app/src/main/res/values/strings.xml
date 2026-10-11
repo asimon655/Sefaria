@@ -86,4 +86,6 @@
     <string name="empty_downloads">Download a book from its page to read it offline.</string>
     <string name="storage_used">Storage used: %1$s</string>
     <string name="connection_texts_offline">Offline: connect to see these texts.</string>
+    <string name="error_not_found_plain">Not found</string>
+    <string name="other_divisions">Other divisions</string>
 </resources>

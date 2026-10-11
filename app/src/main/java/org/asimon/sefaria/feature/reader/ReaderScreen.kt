@@ -9,6 +9,7 @@ import org.asimon.sefaria.feature.connections.connectionItems
 import org.asimon.sefaria.feature.connections.ConnectionsViewModel
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.ui.components.label
+import org.asimon.sefaria.ui.components.hebrewUi
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.data.repo.AppError
 import androidx.compose.ui.res.stringResource
@@ -99,13 +100,17 @@ fun ReaderScreen(onBack: () -> Unit, onOpen: (ReaderRoute) -> Unit, vm: ReaderVi
     val list = rememberLazyListState()
     var showDisplay by rememberSaveable { mutableStateOf(false) }
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val heUi = hebrewUi()
+    LaunchedEffect(heUi) { vm.setHebrewUi(heUi) }
+    // in a Hebrew interface, no English title while the book's Hebrew name is unknown
+    val bookName = if (heUi) s.bookHe else s.bookTitle
 
     val title by remember {
         derivedStateOf {
             when (val item = s.items.getOrNull(list.firstVisibleItemIndex)) {
                 is SegmentItem -> item.sectionTitle
                 is HeaderItem -> item.title
-                null -> s.bookTitle
+                null -> bookName
             }
         }
     }
@@ -155,7 +160,7 @@ fun ReaderScreen(onBack: () -> Unit, onOpen: (ReaderRoute) -> Unit, vm: ReaderVi
                     }
                 }
                 item(key = "bottom") {
-                    EdgeRow(loading = s.loadingNext, error = s.nextError, atEdge = s.atEnd, edgeText = stringResource(R.string.end_of_book, s.bookTitle), onRetry = vm::loadNext)
+                    EdgeRow(loading = s.loadingNext, error = s.nextError, atEdge = s.atEnd, edgeText = stringResource(R.string.end_of_book, bookName), onRetry = vm::loadNext)
                 }
               }
               if (s.loadingPrev) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
@@ -212,6 +217,7 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
     }
     val he = item.he
     val en = item.en
+    val refLabel = pick(item.ref.human(), item.ref.hebrew())
     val rtlRow = when (prefs.layout) {
         Layout.Hebrew, Layout.Stacked -> he != null
         Layout.English, Layout.SideBySide -> en == null
@@ -222,7 +228,7 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
                 .fillMaxWidth()
                 .background(bg)
                 .clickable(onClick = onClick)
-                .semantics { contentDescription = item.ref.human() }
+                .semantics { contentDescription = refLabel }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             // the number, with a notes marker under it, so text columns stay aligned
@@ -285,7 +291,7 @@ private fun SegmentSheet(
     val citation = buildString {
         item.he?.let { append(it.plain).append('\n') }
         item.en?.let { append(it.plain).append('\n') }
-        append("— ").append(item.ref.human())
+        append("— ").append(pick(item.ref.human(), item.ref.hebrew()))
     }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {

@@ -67,7 +67,8 @@ class DownloadsViewModel @Inject constructor(private val packs: PackRepository) 
     fun download(book: String) { _available.value[book]?.let(packs::download) }
     fun cancel(book: String) = packs.cancel(book)
     fun delete(book: String) = viewModelScope.launch { packs.delete(book) }
-    fun updateAvailable(p: InstalledPack) = packs.updateAvailable(p, _available.value[p.book])
+    /** Pass the [available] entry read in composition, so the UI updates when the listing arrives. */
+    fun updateAvailable(p: InstalledPack, available: PackDto?) = packs.updateAvailable(p, available)
 }
 
 @Composable
@@ -90,7 +91,7 @@ fun BookDownload(book: String, vm: DownloadsViewModel) {
         null -> if (pack != null) Row(pad, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.DownloadDone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Text(stringResource(R.string.downloaded_size, size(pack.bytes)), Modifier.weight(1f).padding(horizontal = 8.dp))
-            if (vm.updateAvailable(pack)) TextButton(onClick = { vm.download(book) }) { Text(stringResource(R.string.update)) }
+            if (vm.updateAvailable(pack, available[book])) TextButton(onClick = { vm.download(book) }) { Text(stringResource(R.string.update)) }
             IconButton(onClick = { vm.delete(book) }) {
                 Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove_download))
             }
@@ -165,13 +166,13 @@ fun DownloadsList(onOpen: (ReaderRoute) -> Unit, vm: DownloadsViewModel) {
                     when {
                         d is DownloadState.Running -> Progress(d, onCancel = { vm.cancel(p.book) })
                         d is DownloadState.Failed -> Text(stringResource(R.string.download_failed, d.error.text()), color = MaterialTheme.colorScheme.error)
-                        vm.updateAvailable(p) -> Text(size(p.bytes) + " · " + stringResource(R.string.update_available), color = MaterialTheme.colorScheme.primary)
+                        vm.updateAvailable(p, available[p.book]) -> Text(size(p.bytes) + " · " + stringResource(R.string.update_available), color = MaterialTheme.colorScheme.primary)
                         else -> Text(size(p.bytes))
                     }
                 },
                 trailingContent = {
                     Row {
-                        if (d == null && vm.updateAvailable(p)) IconButton(onClick = { vm.download(p.book) }) {
+                        if (d == null && vm.updateAvailable(p, available[p.book])) IconButton(onClick = { vm.download(p.book) }) {
                             Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.update))
                         }
                         IconButton(onClick = { vm.delete(p.book) }) {

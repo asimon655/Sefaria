@@ -4,6 +4,7 @@ import org.asimon.sefaria.ui.components.screenAlign
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.ui.components.other
 import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.ui.components.prose
 import org.asimon.sefaria.data.repo.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
@@ -110,7 +111,7 @@ fun LibraryScreen(
             s.error != null -> ErrorMessage(s.error!!.text(), vm::load, Modifier.padding(padding))
             items == null -> Loading(Modifier.padding(padding))
             else -> {
-              val desc = s.title?.let { t -> pick(t.desc.en, t.desc.he).ifEmpty { pick(t.short.en, t.short.he) } }.orEmpty()
+              val desc = s.title?.let { t -> prose(t.desc.en, t.desc.he).ifEmpty { prose(t.short.en, t.short.he) } }.orEmpty()
               LazyColumn(contentPadding = padding) {
                 if (desc.isNotEmpty()) {
                     item {
@@ -154,7 +155,7 @@ private fun TocRow(node: TocNodeDto, onClick: () -> Unit) {
             textAlign = screenAlign(),
             modifier = Modifier.fillMaxWidth(),
         )
-        val short = pick(node.short.en, node.short.he)
+        val short = prose(node.short.en, node.short.he)
         if (short.isNotEmpty()) Text(
             short,
             style = MaterialTheme.typography.bodySmall,

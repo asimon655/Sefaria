@@ -29,7 +29,7 @@
     <string name="share">שיתוף</string>
     <string name="layout">פריסה</string>
     <string name="layout_hebrew">עברית</string>
-    <string name="layout_english">English</string>
+    <string name="layout_english">אנגלית</string>
     <string name="layout_both">שתיהן</string>
     <string name="layout_side">זו לצד זו</string>
     <string name="connections">קישורים</string>
@@ -86,4 +86,6 @@
     <string name="empty_downloads">אפשר להוריד ספר מדף הספר כדי לקרוא בו ללא רשת.</string>
     <string name="storage_used">נפח בשימוש: %1$s</string>
     <string name="connection_texts_offline">אין חיבור: התחברו לרשת כדי לראות את הטקסטים.</string>
+    <string name="error_not_found_plain">לא נמצא</string>
+    <string name="other_divisions">חלוקות נוספות</string>
 </resources>

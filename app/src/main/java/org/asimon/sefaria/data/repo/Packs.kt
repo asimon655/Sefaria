@@ -115,6 +115,7 @@ class PackRepository(
 
     /** The server's downloadable books by title (cached per build). */
     suspend fun available(): Load<Map<String, PackDto>> {
+        if (fetcher.build == null) fetcher.refreshBuild() // a stale cached listing would hide updates
         memo?.let { (b, m) -> if (b == fetcher.build) return Load.Ok(m) }
         val r = fetcher.get(LISTING, { json ->
             withContext(Dispatchers.Default) { SefariaJson.decodeFromString(ListSerializer(PackDto.serializer()), json) }

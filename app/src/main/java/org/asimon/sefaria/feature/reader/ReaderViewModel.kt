@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
@@ -62,6 +63,7 @@ data class SegmentItem(
 
 data class ReaderState(
     val bookTitle: String = "",
+    val bookHe: String = "",
     val items: List<ReaderItem> = emptyList(),
     val loading: Boolean = true,
     val error: AppError? = null,
@@ -76,9 +78,12 @@ data class ReaderState(
     val initialIndex: Int? = null,
 )
 
-/** What changes the parsed text; layout and font size are applied at draw time. */
+/**
+ * What changes the parsed items; layout and font size are applied at draw time.
+ * [hebrewLabels] follows the interface language (refs and segment numbers in Hebrew).
+ */
 private data class DisplayOpts(val niqqud: Boolean, val cantillation: Boolean, val hebrewLabels: Boolean) {
-    constructor(p: Prefs) : this(p.niqqud, p.cantillation, p.hebrewLabels)
+    constructor(p: Prefs, hebrewUi: Boolean) : this(p.niqqud, p.cantillation, hebrewUi)
 }
 
 private class Chunk(val section: Ref, val text: SectionText) {
@@ -108,7 +113,8 @@ class ReaderViewModel @Inject constructor(
     private var book: Book? = null
     private val chunks = ArrayList<Chunk>() // mutated on the main thread only
     private var highlight: IntRange = IntRange.EMPTY // slots
-    private var opts = DisplayOpts(settings.prefs.value)
+    private val hebrewUi = MutableStateFlow(false)
+    private var opts = DisplayOpts(settings.prefs.value, hebrewUi.value)
     private val parsed = HashMap<String, List<ReaderItem>>() // chunk key -> items for opts
     private var awaitingInitialScroll = true
     private val position = MutableStateFlow<Ref?>(null)
@@ -116,7 +122,7 @@ class ReaderViewModel @Inject constructor(
     init {
         open()
         viewModelScope.launch {
-            settings.prefs.map(::DisplayOpts).distinctUntilChanged().drop(1).collect {
+            combine(settings.prefs, hebrewUi, ::DisplayOpts).distinctUntilChanged().drop(1).collect {
                 opts = it
                 parsed.clear()
                 publish()
@@ -127,6 +133,11 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    /** The interface language, from the screen (the view model outlives a language switch). */
+    fun setHebrewUi(v: Boolean) {
+        hebrewUi.value = v
+    }
+
     fun open() = viewModelScope.launch {
         _state.value = ReaderState(bookTitle = route.book)
         val b = when (val r = library.book(route.book)) {
@@ -134,6 +145,7 @@ class ReaderViewModel @Inject constructor(
             is Load.Err -> return@launch fail(r.error)
         }
         book = b
+        _state.update { it.copy(bookTitle = b.title, bookHe = b.he) }
         val target = Ref.parseOrNull(Catalog(listOf(b)), route.ref) ?: Ref(b, b.root)
         val section = try {
             target.openSection()
@@ -230,6 +242,7 @@ class ReaderViewModel @Inject constructor(
     private suspend fun publish(): List<ReaderItem> {
         val b = book ?: return emptyList()
         val snapshot = chunks.toList()
+        if (snapshot.isEmpty()) return emptyList() // options changed before the first section arrived
         val o = opts
         val hl = highlight
         val items = ArrayList<ReaderItem>()

@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.repo.UserDataRepository
+import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.feature.downloads.DownloadsList
 import org.asimon.sefaria.feature.downloads.DownloadsViewModel
 import java.text.DateFormat
@@ -93,14 +94,14 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
             LazyColumn {
                 if (tab == 0) items(bookmarks, key = { it.id }) { b ->
                     ListItem(
-                        headlineContent = { Text(if (prefs.hebrewLabels) b.heLabel else b.label) },
+                        headlineContent = { Text(pick(b.label, b.heLabel)) },
                         supportingContent = { Text(b.preview, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                         modifier = Modifier.clickable { onOpen(ReaderRoute(b.book, b.ref)) },
                     )
                     HorizontalDivider()
                 } else items(history, key = { it.id }) { h ->
                     ListItem(
-                        headlineContent = { Text(if (prefs.hebrewLabels) h.heLabel else h.label) },
+                        headlineContent = { Text(pick(h.label, h.heLabel)) },
                         supportingContent = { Text(date.format(Date(h.visitedAt))) },
                         modifier = Modifier.clickable { onOpen(ReaderRoute(h.book, h.ref, highlight = false)) },
                     )
