@@ -53,10 +53,17 @@ import javax.inject.Inject
 /** A linked text, parsed for display. */
 data class LinkedText(val book: String, val ref: String, val human: String, val heRef: String, val he: RichText?, val en: RichText?)
 
-data class BookTexts(val loading: Boolean = true, val error: AppError? = null, val links: List<LinkedText> = emptyList())
+/** [offline]: the texts could not be fetched, so only the refs are listed. */
+data class BookTexts(
+    val loading: Boolean = true,
+    val error: AppError? = null,
+    val links: List<LinkedText> = emptyList(),
+    val offline: Boolean = false,
+)
 
 data class ConnectionsState(
     val ref: String? = null,
+    val book: String? = null, // the book of [ref]
     val loading: Boolean = false,
     val error: AppError? = null,
     val groups: List<LinkGroupDto> = emptyList(),
@@ -75,11 +82,11 @@ class ConnectionsViewModel @Inject constructor(
     private val _state = MutableStateFlow(ConnectionsState())
     val state = _state.asStateFlow()
 
-    fun load(ref: String) {
+    fun load(ref: String, book: String) {
         if (_state.value.ref == ref && _state.value.error == null) return
-        _state.value = ConnectionsState(ref = ref, loading = true)
+        _state.value = ConnectionsState(ref = ref, book = book, loading = true)
         viewModelScope.launch {
-            val r = repo.links(ref)
+            val r = repo.links(ref, book)
             if (_state.value.ref != ref) return@launch
             _state.update {
                 when (r) {
@@ -112,11 +119,18 @@ class ConnectionsViewModel @Inject constructor(
                         }
                     }
                 })
-                is Load.Err -> BookTexts(loading = false, error = r.error)
+                // offline: list the refs (from the connections without text) so they can still be opened
+                is Load.Err -> if (r.error == AppError.Network) BookTexts(loading = false, offline = true, links = refsOnly(book))
+                    else BookTexts(loading = false, error = r.error)
             }
             if (_state.value.ref == ref) _state.update { it.copy(expanded = it.expanded + (book to texts)) }
         }
     }
+
+    private fun refsOnly(book: String): List<LinkedText> =
+        _state.value.groups.flatMap { it.books }.filter { it.title == book }.flatMap { b ->
+            b.links.map { l -> LinkedText(b.title, l.ref, l.human.ifEmpty { l.ref.replace('_', ' ') }, l.heRef, null, null) }
+        }
 }
 
 /** The connections part of the segment sheet, as LazyColumn items. */
@@ -181,8 +195,18 @@ fun LazyListScope.connectionItems(
                         Text(texts.error.text() + " · " + stringResource(R.string.retry))
                     }
                 }
-                else -> for ((i, l) in texts.links.withIndex()) {
-                    item(key = "t:" + b.title + ":" + i) { LinkedTextRow(l, prefs) { onOpen(ReaderRoute(l.book, l.ref)) } }
+                else -> {
+                    if (texts.offline) item(key = "bo:" + b.title) {
+                        Text(
+                            stringResource(R.string.connection_texts_offline),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 28.dp, end = 16.dp, bottom = 4.dp),
+                        )
+                    }
+                    for ((i, l) in texts.links.withIndex()) {
+                        item(key = "t:" + b.title + ":" + i) { LinkedTextRow(l, prefs) { onOpen(ReaderRoute(l.book, l.ref)) } }
+                    }
                 }
             }
             item(key = "d:" + b.title) { HorizontalDivider(Modifier.padding(horizontal = 16.dp)) }

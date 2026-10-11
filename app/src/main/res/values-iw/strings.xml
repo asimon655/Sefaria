@@ -73,4 +73,17 @@
     <string name="error_server">שגיאת שרת (%1$d)</string>
     <string name="error_bad_response">תגובה לא צפויה מהשרת</string>
     <string name="error_no_text">אין טקסט בספר זה</string>
+    <!-- downloads -->
+    <string name="downloads">הורדות</string>
+    <string name="download_size">הורדה לקריאה ללא רשת · %1$s</string>
+    <string name="downloading">מוריד %1$s מתוך %2$s</string>
+    <string name="downloaded_size">הורד · %1$s</string>
+    <string name="update_available">יש עדכון</string>
+    <string name="update">עדכון</string>
+    <string name="cancel">ביטול</string>
+    <string name="remove_download">הסרת ההורדה</string>
+    <string name="download_failed">ההורדה נכשלה: %1$s</string>
+    <string name="empty_downloads">אפשר להוריד ספר מדף הספר כדי לקרוא בו ללא רשת.</string>
+    <string name="storage_used">נפח בשימוש: %1$s</string>
+    <string name="connection_texts_offline">אין חיבור: התחברו לרשת כדי לראות את הטקסטים.</string>
 </resources>

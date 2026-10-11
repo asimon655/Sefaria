@@ -73,4 +73,17 @@
     <string name="error_server">Server error (%1$d)</string>
     <string name="error_bad_response">Unexpected response from the server</string>
     <string name="error_no_text">This book has no text</string>
+    <!-- downloads -->
+    <string name="downloads">Downloads</string>
+    <string name="download_size">Download for offline · %1$s</string>
+    <string name="downloading">Downloading %1$s of %2$s</string>
+    <string name="downloaded_size">Downloaded · %1$s</string>
+    <string name="update_available">Update available</string>
+    <string name="update">Update</string>
+    <string name="cancel">Cancel</string>
+    <string name="remove_download">Remove download</string>
+    <string name="download_failed">Download failed: %1$s</string>
+    <string name="empty_downloads">Download a book from its page to read it offline.</string>
+    <string name="storage_used">Storage used: %1$s</string>
+    <string name="connection_texts_offline">Offline: connect to see these texts.</string>
 </resources>

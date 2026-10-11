@@ -168,3 +168,16 @@ data class ErrorDto(val error: ErrorBody) {
     @Serializable
     data class ErrorBody(val code: String = "", val message: String = "", val suggestions: List<String> = emptyList())
 }
+
+/** One downloadable book (/v1/packs, SERVER_SPEC §7). */
+@Serializable
+data class PackDto(
+    val book: String,
+    val he: String = "",
+    val file: String,
+    val url: String, // download path, includes the build id
+    val bytes: Long,
+    val sha256: String,
+    val sections: Int = 0,
+    val segments: Int = 0,
+)

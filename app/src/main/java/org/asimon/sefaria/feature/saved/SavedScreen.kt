@@ -39,6 +39,8 @@ import kotlinx.coroutines.launch
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.repo.UserDataRepository
+import org.asimon.sefaria.feature.downloads.DownloadsList
+import org.asimon.sefaria.feature.downloads.DownloadsViewModel
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
@@ -54,7 +56,7 @@ class SavedViewModel @Inject constructor(private val user: UserDataRepository, s
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewModel()) {
+fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewModel(), dvm: DownloadsViewModel = hiltViewModel()) {
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
@@ -76,6 +78,11 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.bookmarks)) })
                 Tab(tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.history)) })
+                Tab(tab == 2, onClick = { tab = 2 }, text = { Text(stringResource(R.string.downloads)) })
+            }
+            if (tab == 2) {
+                DownloadsList(onOpen, dvm)
+                return@Column
             }
             val empty = if (tab == 0) bookmarks.isEmpty() else history.isEmpty()
             if (empty) Text(

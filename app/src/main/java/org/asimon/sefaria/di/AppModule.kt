@@ -15,14 +15,18 @@ import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import org.asimon.sefaria.BuildConfig
 import org.asimon.sefaria.data.Settings
+import org.asimon.sefaria.data.local.PackStore
 import org.asimon.sefaria.data.local.SefariaDb
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.data.repo.LinksRepository
+import org.asimon.sefaria.data.repo.PackDownloader
+import org.asimon.sefaria.data.repo.PackRepository
 import org.asimon.sefaria.data.repo.TextRepository
 import org.asimon.sefaria.data.repo.UserDataRepository
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -58,7 +62,14 @@ object AppModule {
     fun buildInfo() = BuildInfo()
 
     @Provides @Singleton
-    fun fetcher(api: Api, db: SefariaDb, build: BuildInfo) = CachedFetcher(api, db.cache(), build)
+    fun packStore(@ApplicationContext ctx: Context) = PackStore(File(ctx.filesDir, "packs"))
+
+    @Provides @Singleton
+    fun fetcher(api: Api, db: SefariaDb, build: BuildInfo, packs: PackStore) = CachedFetcher(api, db.cache(), build, packs)
+
+    @Provides @Singleton
+    fun packs(api: Api, fetcher: CachedFetcher, store: PackStore, client: OkHttpClient, settings: Settings, scope: CoroutineScope) =
+        PackRepository(api, fetcher, store, PackDownloader(client, settings::serverUrl), scope)
 
     @Provides @Singleton
     fun library(api: Api, fetcher: CachedFetcher) = LibraryRepository(api, fetcher)

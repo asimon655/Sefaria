@@ -36,7 +36,7 @@ class CachedFetcherTest {
     @Test
     fun fetchesAndStoresWhenNotCached() = runTest {
         build.current = "b1"
-        val r = fetcher.get("k", { it }, respond(ApiResult.Ok("v", "\"raw\"", "\"b1\"")))
+        val r = fetcher.get("k", { it }, fetch = respond(ApiResult.Ok("v", "\"raw\"", "\"b1\"")))
         assertEquals(Load.Ok("v"), r)
         assertEquals(listOf<String?>(null), calls)
         assertEquals("\"raw\"", cache.rows["k"]!!.json)
@@ -46,9 +46,9 @@ class CachedFetcherTest {
     fun currentBuildCacheSkipsNetwork() = runTest {
         cache.put(CacheEntry("k", "cached", "\"b1\"", 0, 0))
         build.current = "b1"
-        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, respond(ApiResult.Ok("new", "new", null))))
+        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, fetch = respond(ApiResult.Ok("new", "new", null))))
         build.current = null // unknown build (offline at startup): use the cache
-        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, respond(ApiResult.Ok("new", "new", null))))
+        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, fetch = respond(ApiResult.Ok("new", "new", null))))
         assertEquals(emptyList<String?>(), calls)
     }
 
@@ -56,10 +56,10 @@ class CachedFetcherTest {
     fun staleBuildRevalidates() = runTest {
         cache.put(CacheEntry("k", "cached", "\"b1\"", 0, 0))
         build.current = "b2"
-        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, respond(ApiResult.NotModified)))
+        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, fetch = respond(ApiResult.NotModified)))
         assertEquals(listOf<String?>("\"b1\""), calls)
         assertEquals("b2", cache.rows["k"]!!.etag) // next read skips the network
-        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, respond(ApiResult.NotModified)))
+        assertEquals(Load.Ok("cached"), fetcher.get("k", { it }, fetch = respond(ApiResult.NotModified)))
         assertEquals(1, calls.size)
     }
 
@@ -67,13 +67,13 @@ class CachedFetcherTest {
     fun networkFailureServesCacheOffline() = runTest {
         cache.put(CacheEntry("k", "cached", "\"b1\"", 0, 0))
         build.current = "b2"
-        val r = fetcher.get("k", { it }, respond(ApiResult.Failure(ApiError.Network(IOException("down")))))
+        val r = fetcher.get("k", { it }, fetch = respond(ApiResult.Failure(ApiError.Network(IOException("down")))))
         assertEquals(Load.Ok("cached", offline = true), r)
     }
 
     @Test
     fun errorsWithoutCache() = runTest {
-        val r = fetcher.get("k", { it }, respond(ApiResult.Failure(ApiError.Http(404, "ref_not_found", "unknown title"))))
+        val r = fetcher.get("k", { it }, fetch = respond(ApiResult.Failure(ApiError.Http(404, "ref_not_found", "unknown title"))))
         assertEquals(Load.Err(AppError.NotFound("unknown title")), r)
         assertNull(cache.rows["k"])
     }

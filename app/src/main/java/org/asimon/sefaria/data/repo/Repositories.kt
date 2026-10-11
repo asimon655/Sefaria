@@ -11,6 +11,7 @@ import org.asimon.sefaria.data.local.Bookmark
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.local.HistoryEntry
+import org.asimon.sefaria.data.local.PackSource
 import org.asimon.sefaria.data.local.ReadingPosition
 import org.asimon.sefaria.data.local.UserDao
 import org.asimon.sefaria.data.remote.Api
@@ -58,7 +59,8 @@ class BuildInfo {
 }
 
 /**
- * Cache-first reads. A cached response from the current build is used as is; one from an
+ * Pack-first, then cache-first reads. A response stored in a downloaded book's pack is used
+ * as is (pass [get]'s book). A cached response from the current build is used as is; one from an
  * older build is revalidated with If-None-Match (a 304 costs a few bytes); if the network
  * fails, the cached copy is still served. Responses are pure functions of
  * (build, request), so this never shows mixed builds within one response.
@@ -67,6 +69,7 @@ class CachedFetcher(
     private val api: Api,
     private val cache: CacheDao,
     private val buildInfo: BuildInfo,
+    private val packs: PackSource = PackSource { _, _ -> null },
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     val build get() = buildInfo.current
@@ -77,7 +80,13 @@ class CachedFetcher(
         return buildInfo.current
     }
 
-    suspend fun <T> get(key: String, decode: suspend (String) -> T, fetch: suspend (etag: String?) -> ApiResult<T>): Load<T> {
+    suspend fun <T> get(
+        key: String,
+        decode: suspend (String) -> T,
+        book: String? = null, // the book the response belongs to, if it may be downloaded
+        fetch: suspend (etag: String?) -> ApiResult<T>,
+    ): Load<T> {
+        if (book != null) packs.get(book, key)?.let { return Load.Ok(decode(it)) }
         val cached = cache.get(key)
         val current = buildInfo.current
         if (cached != null && (current == null || cached.etag?.trim('"') == current)) {
@@ -123,7 +132,7 @@ class LibraryRepository(private val api: Api, private val fetcher: CachedFetcher
     suspend fun book(title: String): Load<Book> {
         val key = title.replace('_', ' ')
         lock.withLock { books[key] }?.let { return Load.Ok(it) }
-        val r = fetcher.get("book:$key", { decodeBook(it) }) { etag -> api.book(key, etag) }
+        val r = fetcher.get("book:$key", { decodeBook(it) }, book = key) { etag -> api.book(key, etag) }
             .let { it.map(::Book) }
         if (r is Load.Ok) lock.withLock { books[key] = r.value }
         return r
@@ -155,7 +164,7 @@ class TextRepository(private val api: Api, private val fetcher: CachedFetcher) {
     /** Loads exactly one section (the paging unit). */
     suspend fun section(section: Ref, versions: VersionSelection = VersionSelection()): Load<SectionText> {
         val ref = section.url()
-        return fetcher.get("text:$ref|${versions.key}", ::decode) { etag -> api.text(ref, versions, etag) }
+        return fetcher.get("text:$ref|${versions.key}", ::decode, book = section.book.title) { etag -> api.text(ref, versions, etag) }
             .map { t ->
                 val s = t.sections.firstOrNull()
                 SectionText(s?.ref ?: ref, s?.heRef ?: t.heRef, s?.first ?: 1, s?.he.orEmpty(), s?.en.orEmpty(), t.versions, s?.linkCounts.orEmpty())
@@ -168,9 +177,9 @@ class TextRepository(private val api: Api, private val fetcher: CachedFetcher) {
 
 /** Connections (Phase 4). Cached like texts, so connections of read segments work offline. */
 class LinksRepository(private val api: Api, private val fetcher: CachedFetcher) {
-    /** All connections of a segment, grouped, without text. */
-    suspend fun links(ref: String): Load<LinksDto> =
-        fetcher.get("links:$ref", ::decode) { etag -> api.links(ref, etag = etag) }
+    /** All connections of a segment of [book], grouped, without text. */
+    suspend fun links(ref: String, book: String): Load<LinksDto> =
+        fetcher.get("links:$ref", ::decode, book = book) { etag -> api.links(ref, etag = etag) }
 
     /** One book's connections of a segment, with their text. */
     suspend fun withText(ref: String, book: String): Load<LinksDto> =

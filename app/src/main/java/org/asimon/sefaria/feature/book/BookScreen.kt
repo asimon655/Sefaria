@@ -71,6 +71,8 @@ import org.asimon.sefaria.core.text.Hebrew
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.remote.AltNodeDto
 import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.feature.downloads.BookDownload
+import org.asimon.sefaria.feature.downloads.DownloadsViewModel
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.data.repo.UserDataRepository
 import org.asimon.sefaria.ui.components.BackButton
@@ -106,7 +108,12 @@ class BookViewModel @Inject constructor(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookScreen(onOpen: (ReaderRoute) -> Unit, onBack: () -> Unit, vm: BookViewModel = hiltViewModel()) {
+fun BookScreen(
+    onOpen: (ReaderRoute) -> Unit,
+    onBack: () -> Unit,
+    vm: BookViewModel = hiltViewModel(),
+    dvm: DownloadsViewModel = hiltViewModel(),
+) {
     val s by vm.state.collectAsStateWithLifecycle()
     val position by vm.position.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
@@ -139,6 +146,7 @@ fun BookScreen(onOpen: (ReaderRoute) -> Unit, onBack: () -> Unit, vm: BookViewMo
                             }
                         }
                     }
+                    item { BookDownload(book.title, dvm) }
                     if (alt != null) item {
                         PrimaryTabRow(selectedTabIndex = tab) {
                             Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.contents)) })

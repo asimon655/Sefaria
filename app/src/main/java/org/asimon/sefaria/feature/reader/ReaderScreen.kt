@@ -278,7 +278,7 @@ private fun SegmentSheet(
     cvm: ConnectionsViewModel = hiltViewModel(),
 ) {
     val bookmarked by remember(item.key) { vm.bookmarked(item.ref) }.collectAsState(initial = false)
-    LaunchedEffect(item.key) { cvm.load(item.key) }
+    LaunchedEffect(item.key) { cvm.load(item.key, item.ref.book.title) }
     val conn by cvm.state.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -323,7 +323,7 @@ private fun SegmentSheet(
                 }
             }
             item(key = "div") { HorizontalDivider(Modifier.padding(top = 8.dp)) }
-            connectionItems(conn, prefs, onToggle = cvm::toggle, onRetry = { cvm.load(item.key) }, onOpen = onOpen)
+            connectionItems(conn, prefs, onToggle = cvm::toggle, onRetry = { cvm.load(item.key, item.ref.book.title) }, onOpen = onOpen)
         }
     }
 }
