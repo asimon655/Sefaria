@@ -177,6 +177,8 @@ fun ReaderScreen(
     }
     val selecting = selection.isNotEmpty()
     val currentRows by rememberUpdatedState(rows)
+    // where a selected verse settles: a little below the top, keeping the previous verse's end in view
+    val snapLine = with(LocalDensity.current) { 32.dp.roundToPx() }
     val currentBookName by rememberUpdatedState(bookName)
 
     val title by remember {
@@ -191,9 +193,9 @@ fun ReaderScreen(
     }
 
     /** Scrolls so that a segment is at the top (inside its paragraph in paragraph flow). */
-    suspend fun scrollTo(key: String, animate: Boolean) {
+    suspend fun scrollTo(key: String, animate: Boolean, line: Int = 0) {
         val row = rows.rowOf(key) ?: return
-        val offset = (rows.rows[row] as? ParagraphRow)?.let { paragraphLayouts[it.key]?.topOf(key) } ?: 0
+        val offset = ((rows.rows[row] as? ParagraphRow)?.let { paragraphLayouts[it.key]?.topOf(key) } ?: 0) - line
         if (animate) list.animateScrollToItem(row, offset) else list.scrollToItem(row, offset)
     }
 
@@ -224,7 +226,10 @@ fun ReaderScreen(
         snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
             for (info in list.layoutInfo.visibleItemsInfo) {
                 val key = when (val row = currentRows.rows.getOrNull(info.index)) {
-                    is LineRow -> row.item.key.takeIf { info.offset >= -info.size / 3 }
+                    is LineRow -> row.item.key.takeIf {
+                        if (prefs.snapToVerse) info.index == verseAtLine(list.layoutInfo, snapLine) { i -> currentRows.rows.getOrNull(i) is LineRow }
+                        else info.offset >= -info.size / 3
+                    }
                     is ParagraphRow -> paragraphLayouts[row.key]?.segmentAt(Offset(1f, maxOf(0, -info.offset) + 1f))?.key
                         ?: row.segments.first().key
                     else -> null
@@ -239,8 +244,8 @@ fun ReaderScreen(
     LaunchedEffect(list, selectedKey != null, prefs.snapToVerse, paragraphs) {
         if (selectedKey == null || !prefs.snapToVerse || paragraphs) return@LaunchedEffect
         snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
-            val target = snapTarget(list.layoutInfo, isVerse = { i -> currentRows.rows.getOrNull(i) is LineRow }) ?: return@collect
-            list.animateScrollToItem(target)
+            val target = snapTarget(list.layoutInfo, snapLine, isVerse = { i -> currentRows.rows.getOrNull(i) is LineRow }) ?: return@collect
+            list.animateScrollToItem(target, -snapLine)
         }
     }
     BackHandler(enabled = selecting) { selAnchor = null; selEnd = null }
@@ -328,8 +333,12 @@ fun ReaderScreen(
                     } else {
                         val opening = selectedKey == null
                         selectedKey = item.key
-                        // on a phone the panel takes the lower part: keep the tapped segment in view
-                        if (opening && !wide) scope.launch { scrollTo(item.key, animate = true) }
+                        when {
+                            // snapping: the tapped verse settles at the snap line, like a scroll would
+                            prefs.snapToVerse && !paragraphs -> scope.launch { scrollTo(item.key, animate = true, line = snapLine) }
+                            // on a phone the panel takes the lower part: keep the tapped segment in view
+                            opening && !wide -> scope.launch { scrollTo(item.key, animate = true) }
+                        }
                     }
                 }
                 val longPress = { item: SegmentItem ->

@@ -9,34 +9,42 @@ data class SnapItem(val index: Int, val top: Int, val bottom: Int) {
 
 /**
  * Where to snap when a scroll ends while connections are open, as a row index to bring to the
- * top, or null to leave the list where it is.
+ * snap line, or null to leave the list where it is. The snap line is [line] pixels below the
+ * viewport's top, so the end of the previous verse stays in view as context.
  *
- * - The verse at the top of the viewport snaps back to its start, unless more than half of it
- *   has scrolled away, then the next verse snaps to the top.
- * - A verse taller than the viewport scrolls freely: no snap while you read inside it. Only
- *   once the next verse's top has passed the middle of the viewport does that verse snap up.
- * - Headers and other rows are skipped (a header at the top snaps to the verse after it).
+ * - The verse at the snap line snaps back to its start, unless more than half of it has
+ *   passed above the line, then the next verse snaps to the line.
+ * - A verse taller than the space below the line scrolls freely: no snap while you read
+ *   inside it. Only once the next verse's top has passed the middle does that verse snap.
+ * - Headers and other rows are skipped (a header at the line snaps to the verse after it).
  */
-fun snapTarget(items: List<SnapItem>, viewportTop: Int, viewportBottom: Int, isVerse: (Int) -> Boolean): Int? {
-    val verses = items.filter { isVerse(it.index) && it.bottom > viewportTop }
+fun snapTarget(items: List<SnapItem>, viewportTop: Int, viewportBottom: Int, line: Int, isVerse: (Int) -> Boolean): Int? {
+    val at = viewportTop + line
+    val verses = items.filter { isVerse(it.index) && it.bottom > at }
     val a = verses.firstOrNull() ?: return null
     val next = verses.getOrNull(1)
-    val height = viewportBottom - viewportTop
-    val middle = viewportTop + height / 2
-    if (a.top >= viewportTop) {
-        // the verse starts inside the viewport (a header above it): align it, unless it already is
-        return a.index.takeIf { a.top - viewportTop > 2 }
+    val height = viewportBottom - at
+    val middle = at + height / 2
+    if (a.top >= at) {
+        // the verse starts below the line (a header above it, or a scroll back): align it, unless it already is
+        return a.index.takeIf { a.top - at > 2 }
     }
     if (a.size > height) {
         // inside a long verse: free, until the next verse has come up past the middle
         return if (next != null && next.top < middle) next.index else null
     }
-    val visible = a.bottom - viewportTop
-    return if (visible * 2 < a.size && next != null) next.index else a.index
+    val below = a.bottom - at
+    return if (below * 2 < a.size && next != null) next.index else a.index.takeIf { at - a.top > 2 }
 }
 
 /** [snapTarget] on a LazyList's current layout. */
-fun snapTarget(info: LazyListLayoutInfo, isVerse: (Int) -> Boolean): Int? {
+fun snapTarget(info: LazyListLayoutInfo, line: Int, isVerse: (Int) -> Boolean): Int? {
     val items = info.visibleItemsInfo.map { SnapItem(it.index, it.offset, it.offset + it.size) }
-    return snapTarget(items, info.viewportStartOffset, info.viewportEndOffset, isVerse)
+    return snapTarget(items, info.viewportStartOffset, info.viewportEndOffset, line, isVerse)
+}
+
+/** The verse row at the snap line (the one the connections panel follows), or null. */
+fun verseAtLine(info: LazyListLayoutInfo, line: Int, isVerse: (Int) -> Boolean): Int? {
+    val at = info.viewportStartOffset + line
+    return info.visibleItemsInfo.firstOrNull { isVerse(it.index) && it.offset + it.size > at + 1 }?.index
 }
