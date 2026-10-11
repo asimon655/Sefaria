@@ -77,4 +77,17 @@ class CachedFetcherTest {
         assertEquals(Load.Err(AppError.NotFound("unknown title")), r)
         assertNull(cache.rows["k"])
     }
+
+    @Test
+    fun downloadedPackComesFirst() = runTest {
+        val packed = CachedFetcher(Api(OkHttpClient(), { "http://unused" }), cache, build, { book, key ->
+            if (book == "Genesis" && key == "k") "from pack" else null
+        }) { 1000L }
+        build.current = "b2"
+        cache.rows["k"] = CacheEntry("k", "cached", "\"b1\"", 0, 0)
+        assertEquals(Load.Ok("from pack"), packed.get("k", { it }, book = "Genesis", fetch = respond(ApiResult.Ok("net", "net", null))))
+        assertEquals(emptyList<String?>(), calls) // no request
+        // another book, or no book given: the usual cache/network path
+        assertEquals(Load.Ok("net"), packed.get("k", { it }, book = "Exodus", fetch = respond(ApiResult.Ok("net", "net", "\"b2\""))))
+    }
 }
