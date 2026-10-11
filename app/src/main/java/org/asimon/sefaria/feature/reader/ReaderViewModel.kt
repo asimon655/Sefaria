@@ -231,8 +231,8 @@ class ReaderViewModel @Inject constructor(
 
     fun bookmarked(ref: Ref): Flow<Boolean> = user.isBookmarked(ref.url())
 
-    fun toggleBookmark(item: SegmentItem, bookmarked: Boolean) = viewModelScope.launch {
-        user.toggleBookmark(item.ref, (item.he ?: item.en)?.plain.orEmpty(), bookmarked)
+    fun toggleBookmark(ref: Ref, preview: String, bookmarked: Boolean) = viewModelScope.launch {
+        user.toggleBookmark(ref, preview, bookmarked)
     }
 
     fun setLayout(v: Layout) = viewModelScope.launch { settings.setLayout(v) }

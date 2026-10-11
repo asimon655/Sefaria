@@ -1,6 +1,8 @@
 package org.asimon.sefaria.feature.reader
 
 import androidx.compose.foundation.combinedClickable
+import kotlinx.coroutines.flow.flowOf
+import org.asimon.sefaria.core.ref.Ref
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -87,6 +89,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -236,6 +239,19 @@ fun ReaderScreen(
 
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    fun selectedSegments() = s.items.filterIsInstance<SegmentItem>().filter { it.key in selection }
+
+    /** The selection as one ref (a segment, or a range within one node), for bookmarking. */
+    fun selectionRef(): Ref? {
+        val segs = selectedSegments().takeIf { it.isNotEmpty() } ?: return null
+        val a = segs.first().ref
+        val b = segs.last().ref
+        if (a == b) return a
+        return if (a.node === b.node && a.sections.size == b.sections.size) Ref(a.book, a.node, a.sections, to = b.sections) else a
+    }
+
+    fun selectionPreview() = selectedSegments().firstOrNull()?.let { (it.he ?: it.en)?.plain }.orEmpty()
+
     fun selectionCitation(): String {
         val segs = s.items.filterIsInstance<SegmentItem>().filter { it.key in selection }
         if (segs.isEmpty()) return ""
@@ -263,6 +279,14 @@ fun ReaderScreen(
                         }
                     },
                     actions = {
+                        val range = selectionRef()
+                        val marked by remember(range?.url()) { range?.let(vm::bookmarked) ?: flowOf(false) }.collectAsState(initial = false)
+                        if (range != null) IconButton(onClick = { vm.toggleBookmark(range, selectionPreview(), marked) }) {
+                            Icon(
+                                if (marked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                                contentDescription = stringResource(if (marked) R.string.remove_bookmark else R.string.bookmark),
+                            )
+                        }
                         IconButton(onClick = {
                             clipboard.setText(AnnotatedString(selectionCitation()))
                             selAnchor = null; selEnd = null
@@ -272,7 +296,7 @@ fun ReaderScreen(
                             context.startActivity(Intent.createChooser(send, null))
                         }) { Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share)) }
                     },
-                ) else TopAppBar(
+                ) else CenterAlignedTopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { BackButton(onBack) },
                     actions = {
@@ -360,7 +384,7 @@ fun ReaderScreen(
                     wide -> Row(Modifier.fillMaxSize()) {
                         text(Modifier.weight(1.4f).fillMaxHeight())
                         VerticalDivider()
-                        ConnectionsPanel(selected, vm, prefs, openLink, onClose = { selectedKey = null }, Modifier.weight(1f).fillMaxHeight())
+                        ConnectionsPanel(selected, prefs, openLink, onClose = { selectedKey = null }, Modifier.weight(1f).fillMaxHeight())
                     }
                     // split: text above, connections below, with a handle to resize
                     else -> {
@@ -368,8 +392,10 @@ fun ReaderScreen(
                         val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
                         Column(Modifier.fillMaxSize()) {
                             text(Modifier.weight(1f - split).fillMaxWidth())
-                            SplitHandle { delta -> split = (split - delta / heightPx).coerceIn(0.2f, 0.85f) }
-                            ConnectionsPanel(selected, vm, prefs, openLink, onClose = { selectedKey = null }, Modifier.weight(split).fillMaxWidth())
+                            ConnectionsPanel(
+                                selected, prefs, openLink, onClose = { selectedKey = null }, Modifier.weight(split).fillMaxWidth(),
+                                onDrag = { delta -> split = (split - delta / heightPx).coerceIn(0.2f, 0.85f) },
+                            )
                         }
                     }
                 }
@@ -415,19 +441,38 @@ private fun TrailBar(trail: List<String>, current: String, currentCategory: Stri
     }
 }
 
+/**
+ * The top of the connections panel as one thin strip: the ref at the start, the grabber in
+ * the middle (the whole strip drags to resize the split), close at the end. Copy, share and
+ * bookmark live in the long-press selection bar.
+ */
 @Composable
-private fun SplitHandle(onDrag: (Float) -> Unit) {
+private fun PanelStrip(label: String, onClose: () -> Unit, onDrag: ((Float) -> Unit)?) {
     val desc = stringResource(R.string.resize_connections)
     Box(
         Modifier
             .fillMaxWidth()
-            .height(22.dp)
+            .height(32.dp)
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .draggable(rememberDraggableState(onDrag), Orientation.Vertical)
-            .semantics { contentDescription = desc },
-        contentAlignment = Alignment.Center,
+            .then(
+                if (onDrag != null) Modifier.draggable(rememberDraggableState(onDrag), Orientation.Vertical).semantics { contentDescription = desc }
+                else Modifier
+            ),
     ) {
-        Box(Modifier.size(width = 36.dp, height = 4.dp).background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)))
+        Text(
+            label, Modifier.align(Alignment.CenterStart).padding(start = 16.dp).fillMaxWidth(0.4f),
+            style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        if (onDrag != null) Box(
+            Modifier.align(Alignment.Center).size(width = 36.dp, height = 4.dp)
+                .background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)),
+        )
+        Box(
+            Modifier.align(Alignment.CenterEnd).size(40.dp, 32.dp).clickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close_connections), Modifier.size(18.dp))
+        }
     }
 }
 
@@ -526,42 +571,17 @@ private fun SegText(text: RichText?, style: TextStyle, modifier: Modifier = Modi
 @Composable
 private fun ConnectionsPanel(
     item: SegmentItem,
-    vm: ReaderViewModel,
     prefs: Prefs,
     onOpen: (ReaderRoute) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    onDrag: ((Float) -> Unit)? = null, // the split's resize; null in the side pane
     cvm: ConnectionsViewModel = hiltViewModel(),
 ) {
-    val bookmarked by remember(item.key) { vm.bookmarked(item.ref) }.collectAsState(initial = false)
     LaunchedEffect(item.key) { cvm.load(item.key, item.ref.book.title) }
     val conn by cvm.state.collectAsStateWithLifecycle()
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
-    val citation = buildString {
-        item.he?.let { append(it.plain).append('\n') }
-        item.en?.let { append(it.plain).append('\n') }
-        append("— ").append(pick(item.ref.human(), item.ref.hebrew()))
-    }
     Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(pick(item.ref.human(), item.ref.hebrew()), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            IconButton(onClick = { vm.toggleBookmark(item, bookmarked) }) {
-                Icon(
-                    if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                    contentDescription = stringResource(if (bookmarked) R.string.remove_bookmark else R.string.bookmark),
-                )
-            }
-            IconButton(onClick = { clipboard.setText(AnnotatedString(citation)) }) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.copy_with_citation))
-            }
-            IconButton(onClick = {
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, citation)
-                context.startActivity(Intent.createChooser(send, null))
-            }) { Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share)) }
-            IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close_connections)) }
-        }
-        HorizontalDivider()
+        PanelStrip(pick(item.ref.human(), item.ref.hebrew()), onClose, onDrag)
         val pinned by cvm.pinned.collectAsStateWithLifecycle()
         val actions = remember(cvm, onOpen) {
             ConnectionsActions(
