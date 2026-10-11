@@ -5,6 +5,11 @@ import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.ui.components.other
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.prose
+import org.asimon.sefaria.ui.theme.categoryColor
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.LayoutDirection
 import org.asimon.sefaria.feature.search.SearchBox
 import org.asimon.sefaria.data.repo.AppError
 import androidx.compose.ui.res.stringResource
@@ -125,7 +130,7 @@ fun LibraryScreen(
                     }
                 }
                 items(items, key = { (if (it.isBook) "b:" + it.title else "c:" + it.en) }) { node ->
-                    TocRow(node) { if (node.isBook) onBook(node.title) else onCategory(s.route.child(node.en)) }
+                    TocRow(node, category = s.route.names.firstOrNull() ?: node.en) { if (node.isBook) onBook(node.title) else onCategory(s.route.child(node.en)) }
                     HorizontalDivider()
                 }
               }
@@ -135,11 +140,14 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun TocRow(node: TocNodeDto, onClick: () -> Unit) {
+private fun TocRow(node: TocNodeDto, category: String, onClick: () -> Unit) {
+    // the top-level category's colour, as a thin bar on the reading side
+    val bar = categoryColor(category)
     Column(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .drawBehind { drawRect(bar, size = Size(4.dp.toPx(), size.height), topLeft = Offset(if (layoutDirection == LayoutDirection.Rtl) size.width - 4.dp.toPx() else 0f, 0f)) }
             .padding(PaddingValues(horizontal = 16.dp, vertical = 12.dp)),
     ) {
         val en = if (node.isBook) node.title else node.en

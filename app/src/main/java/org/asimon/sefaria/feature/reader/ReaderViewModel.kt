@@ -37,6 +37,7 @@ import org.asimon.sefaria.data.Layout
 import org.asimon.sefaria.data.Prefs
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.ThemeMode
+import org.asimon.sefaria.data.TextFlow
 import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.data.repo.SectionText
@@ -64,6 +65,7 @@ data class SegmentItem(
 data class ReaderState(
     val bookTitle: String = "",
     val bookHe: String = "",
+    val bookCategory: String = "", // top-level category (colour of the trail's current step)
     val items: List<ReaderItem> = emptyList(),
     val loading: Boolean = true,
     val error: AppError? = null,
@@ -147,7 +149,7 @@ class ReaderViewModel @Inject constructor(
             is Load.Err -> return@launch fail(r.error)
         }
         book = b
-        _state.update { it.copy(bookTitle = b.title, bookHe = b.he) }
+        _state.update { it.copy(bookTitle = b.title, bookHe = b.he, bookCategory = b.dto.categories.firstOrNull().orEmpty()) }
         val target = Ref.parseOrNull(Catalog(listOf(b)), route.ref) ?: Ref(b, b.root)
         val section = try {
             target.openSection()
@@ -238,6 +240,8 @@ class ReaderViewModel @Inject constructor(
     fun setNiqqud(v: Boolean) = viewModelScope.launch { settings.setNiqqud(v) }
     fun setCantillation(v: Boolean) = viewModelScope.launch { settings.setCantillation(v) }
     fun setTheme(v: ThemeMode) = viewModelScope.launch { settings.setTheme(v) }
+    fun setFlow(v: TextFlow) = viewModelScope.launch { settings.setFlow(v) }
+    fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { settings.setKeepScreenOn(v) }
 
     private fun fail(error: AppError) = _state.update { it.copy(loading = false, error = error) }
 

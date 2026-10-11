@@ -54,8 +54,11 @@ fun ThemeMode.label(): String = stringResource(
     when (this) {
         ThemeMode.System -> R.string.theme_system
         ThemeMode.Light -> R.string.theme_light
+        ThemeMode.Stone -> R.string.theme_stone
         ThemeMode.Sepia -> R.string.theme_sepia
+        ThemeMode.EInk -> R.string.theme_eink
         ThemeMode.Dark -> R.string.theme_dark
+        ThemeMode.Black -> R.string.theme_black
     }
 )
 

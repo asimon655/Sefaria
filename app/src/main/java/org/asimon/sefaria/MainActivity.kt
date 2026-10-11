@@ -8,6 +8,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import android.graphics.Color as AndroidColor
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
+import org.asimon.sefaria.ui.theme.isDark
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -21,6 +26,9 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.navigation.toRoute
 import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.feature.home.HomeScreen
+import org.asimon.sefaria.feature.onboarding.Onboarding
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -61,7 +69,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val prefs by settings.prefs.collectAsStateWithLifecycle()
-            SefariaTheme(prefs.theme) { AppNav() }
+            // system bar icons follow the app's theme, not the system's
+            val dark = prefs.theme.isDark(isSystemInDarkTheme())
+            DisposableEffect(dark) {
+                val style = if (dark) SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                    else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose {}
+            }
+            SefariaTheme(prefs.theme) {
+                if (prefs.onboarded) AppNav()
+                else Onboarding(
+                    prefs.layout,
+                    onLayout = { l -> lifecycleScope.launch { settings.setLayout(l) } },
+                    onDone = { lifecycleScope.launch { settings.setOnboarded() } },
+                )
+            }
         }
     }
 }

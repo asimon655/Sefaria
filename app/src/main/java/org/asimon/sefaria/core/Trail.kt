@@ -5,14 +5,15 @@ package org.asimon.sefaria.core
  * (e.g. Genesis 1:2 → Rashi on Genesis 1:2:1 → Chagigah 12a). Each step is kept as one
  * string so routes and history rows can carry the trail as plain strings.
  */
-data class TrailStep(val book: String, val ref: String, val en: String, val he: String) {
-    fun encode() = listOf(book, ref, en, he).joinToString(UNIT.toString())
+data class TrailStep(val book: String, val ref: String, val en: String, val he: String, val category: String = "") {
+    fun encode() = listOf(book, ref, en, he, category).joinToString(UNIT.toString())
 
     companion object {
         private const val UNIT = '\u001F' // between fields of a step
         private const val RECORD = '\u001E' // between steps in a history row
 
-        fun decode(s: String): TrailStep? = s.split(UNIT).takeIf { it.size == 4 }?.let { TrailStep(it[0], it[1], it[2], it[3]) }
+        fun decode(s: String): TrailStep? = s.split(UNIT).takeIf { it.size in 4..5 }
+            ?.let { TrailStep(it[0], it[1], it[2], it[3], it.getOrElse(4) { "" }) }
 
         fun decodeAll(steps: List<String>): List<TrailStep> = steps.mapNotNull(::decode)
 

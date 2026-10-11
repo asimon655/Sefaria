@@ -94,4 +94,23 @@
     <string name="connection_texts_offline">Offline: connect to see these texts.</string>
     <string name="error_not_found_plain">Not found</string>
     <string name="other_divisions">Other divisions</string>
+    <string name="theme_stone">Stone</string>
+    <string name="theme_eink">E-ink</string>
+    <string name="theme_black">Black</string>
+    <string name="text_flow">Text flow</string>
+    <string name="flow_lines">Verse per line</string>
+    <string name="flow_paragraph">Paragraph</string>
+    <string name="keep_screen_on">Keep the screen on while reading</string>
+    <string name="pin">Pin</string>
+    <string name="unpin">Unpin</string>
+    <string name="pinned_hint">Pinned commentators show here for every verse</string>
+    <string name="all_categories">All</string>
+    <string name="back_to_list">Back to the list</string>
+    <string name="n_of_m">%1$d of %2$d</string>
+    <string name="copy_selection">Copy %1$s</string>
+    <string name="welcome">Welcome</string>
+    <string name="welcome_text">Choose how the app speaks and how texts appear. You can change both later.</string>
+    <string name="text_layout">Text layout</string>
+    <string name="selected_count">%1$d selected</string>
+    <string name="get_started">Let’s begin</string>
 </resources>

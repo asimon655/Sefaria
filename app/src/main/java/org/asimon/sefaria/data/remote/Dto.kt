@@ -141,9 +141,13 @@ data class LinkGroupDto(
 data class LinkBookDto(
     val title: String,
     val he: String = "",
+    val collective: String = "", // "Rashi" for every "Rashi on …"; empty for books without one
     val count: Int = 0,
     val links: List<LinkDto> = emptyList(),
-)
+) {
+    /** What a pin refers to: the commentator, so a pin follows it from book to book. */
+    val pinKey get() = collective.ifEmpty { title }
+}
 
 @Serializable
 data class LinkDto(

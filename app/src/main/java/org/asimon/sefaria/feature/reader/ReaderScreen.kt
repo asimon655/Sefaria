@@ -1,5 +1,10 @@
 package org.asimon.sefaria.feature.reader
 
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -25,12 +30,15 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.core.TrailStep
+import org.asimon.sefaria.ui.theme.categoryColor
 import androidx.compose.material3.LinearProgressIndicator
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.layout.PaddingValues
 import org.asimon.sefaria.ui.components.pick
-import org.asimon.sefaria.feature.connections.connectionItems
+import org.asimon.sefaria.feature.connections.connectionList
+import org.asimon.sefaria.feature.connections.CommentaryPager
+import org.asimon.sefaria.feature.connections.ConnectionsActions
 import org.asimon.sefaria.feature.connections.ConnectionsViewModel
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.ui.components.label
@@ -113,6 +121,10 @@ import org.asimon.sefaria.core.text.RichText
 import org.asimon.sefaria.data.Layout
 import org.asimon.sefaria.data.Prefs
 import org.asimon.sefaria.data.ThemeMode
+import org.asimon.sefaria.data.TextFlow
+import org.asimon.sefaria.ui.components.ThemePicker
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import org.asimon.sefaria.ui.components.BackButton
 import org.asimon.sefaria.ui.components.ErrorMessage
 import org.asimon.sefaria.ui.components.Loading
@@ -126,62 +138,141 @@ fun ReaderScreen(
     vm: ReaderViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
-    val prefs by vm.prefs.collectAsStateWithLifecycle()
+    val storedPrefs by vm.prefs.collectAsStateWithLifecycle()
+    // pinching shows the new size at once; it is stored when the fingers lift
+    var liveScale by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(storedPrefs.fontScale) { liveScale = null }
+    val prefs = liveScale?.let { storedPrefs.copy(fontScale = it) } ?: storedPrefs
+    val baseScale by rememberUpdatedState(storedPrefs.fontScale) // the pinch handler is long-lived
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showDisplay by rememberSaveable { mutableStateOf(false) }
     // the segment whose connections are open; null = text only
     var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
+    // a range selection (long-press, then tap to extend): anchor and end segment keys
+    var selAnchor by rememberSaveable { mutableStateOf<String?>(null) }
+    var selEnd by rememberSaveable { mutableStateOf<String?>(null) }
     val heUi = hebrewUi()
     LaunchedEffect(heUi) { vm.setHebrewUi(heUi) }
     // in a Hebrew interface, no English title while the book's Hebrew name is unknown
     val bookName = if (heUi) s.bookHe else s.bookTitle
 
+    val view = LocalView.current
+    DisposableEffect(prefs.keepScreenOn) {
+        view.keepScreenOn = prefs.keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
+
+    val paragraphs = prefs.paragraphs()
+    val rows = remember(s.items, paragraphs) { ReaderRows.build(s.items, paragraphs) }
+    val paragraphLayouts = remember { mutableMapOf<String, ParagraphLayout>() } // row key -> layout
+    val segIndex = remember(s.items) { s.items.withIndex().associate { (i, it) -> it.key to i } }
+    val selection: Set<String> = remember(selAnchor, selEnd, s.items) {
+        val a = segIndex[selAnchor] ?: return@remember emptySet()
+        val e = segIndex[selEnd] ?: a
+        (minOf(a, e)..maxOf(a, e)).mapNotNull { (s.items[it] as? SegmentItem)?.key }.toSet()
+    }
+    val selecting = selection.isNotEmpty()
+    val currentRows by rememberUpdatedState(rows)
+    val currentBookName by rememberUpdatedState(bookName)
+
     val title by remember {
         derivedStateOf {
-            when (val item = s.items.getOrNull(list.firstVisibleItemIndex)) {
-                is SegmentItem -> item.sectionTitle
-                is HeaderItem -> item.title
-                null -> bookName
+            when (val row = currentRows.rows.getOrNull(list.firstVisibleItemIndex)) {
+                is LineRow -> row.item.sectionTitle
+                is ParagraphRow -> row.segments.first().sectionTitle
+                is HeaderRow -> row.item.title
+                null -> currentBookName
             }
         }
+    }
+
+    /** Scrolls so that a segment is at the top (inside its paragraph in paragraph flow). */
+    suspend fun scrollTo(key: String, animate: Boolean) {
+        val row = rows.rowOf(key) ?: return
+        val offset = (rows.rows[row] as? ParagraphRow)?.let { paragraphLayouts[it.key]?.topOf(key) } ?: 0
+        if (animate) list.animateScrollToItem(row, offset) else list.scrollToItem(row, offset)
     }
 
     // scroll to the target once, then let the view model page in both directions
     LaunchedEffect(s.initialIndex) {
         val idx = s.initialIndex ?: return@LaunchedEffect
-        val key = s.items.getOrNull(idx)?.key
-        list.scrollToItem(idx)
+        val key = s.items.getOrNull(idx)?.key ?: return@LaunchedEffect
+        val row = rows.rowOf(key) ?: return@LaunchedEffect
+        val rowKey = rows.rows[row].key
+        list.scrollToItem(row)
         // page only once the target is laid out; a prepend before that would shift the
         // pending index into the previous section
         withTimeoutOrNull(2000) {
-            snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == key } }.first { it }
+            snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == rowKey } }.first { it }
         }
+        if (rows.rows[row] is ParagraphRow) scrollTo(key, animate = false)
         vm.initialScrollDone()
-        vm.onVisible(list.firstVisibleItemIndex, list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: idx)
+        vm.onVisible(rows.firstItemOf(list.firstVisibleItemIndex), rows.lastItemOf(list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: row))
     }
     LaunchedEffect(list) {
         snapshotFlow { list.firstVisibleItemIndex to (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) }
-            .collect { (first, last) -> vm.onVisible(first, last) }
+            .collect { (first, last) -> vm.onVisible(currentRows.firstItemOf(first), currentRows.lastItemOf(last)) }
     }
-    // While connections are open they follow the reading: when a scroll ends, the first
-    // segment at the top of the text becomes the selected one.
-    val items by rememberUpdatedState(s.items)
+    // While connections are open they follow the reading: when a scroll ends, the segment at
+    // the top of the text becomes the selected one.
     LaunchedEffect(list, selectedKey != null) {
         if (selectedKey == null) return@LaunchedEffect
         snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
-            val top = list.layoutInfo.visibleItemsInfo.firstOrNull { info ->
-                info.offset >= -info.size / 3 && items.getOrNull(info.index) is SegmentItem
-            } ?: return@collect
-            selectedKey = items[top.index].key
+            for (info in list.layoutInfo.visibleItemsInfo) {
+                val key = when (val row = currentRows.rows.getOrNull(info.index)) {
+                    is LineRow -> row.item.key.takeIf { info.offset >= -info.size / 3 }
+                    is ParagraphRow -> paragraphLayouts[row.key]?.segmentAt(Offset(1f, maxOf(0, -info.offset) + 1f))?.key
+                        ?: row.segments.first().key
+                    else -> null
+                } ?: continue
+                selectedKey = key
+                break
+            }
         }
     }
-    BackHandler(enabled = selectedKey != null) { selectedKey = null }
+    BackHandler(enabled = selecting) { selAnchor = null; selEnd = null }
+    BackHandler(enabled = !selecting && selectedKey != null) { selectedKey = null }
+
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    fun selectionCitation(): String {
+        val segs = s.items.filterIsInstance<SegmentItem>().filter { it.key in selection }
+        if (segs.isEmpty()) return ""
+        return buildString {
+            for (seg in segs) {
+                val body = when (prefs.layout) {
+                    Layout.Hebrew -> (seg.he ?: seg.en)?.plain
+                    Layout.English -> (seg.en ?: seg.he)?.plain
+                    else -> listOfNotNull(seg.he?.plain, seg.en?.plain).joinToString("\n")
+                }
+                if (!body.isNullOrBlank()) append(body).append('\n')
+            }
+            append("— ").append(rangeLabel(segs.first(), segs.last(), heUi))
+        }
+    }
 
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(
+                if (selecting) TopAppBar(
+                    title = { Text(stringResource(R.string.selected_count, selection.size)) },
+                    navigationIcon = {
+                        IconButton(onClick = { selAnchor = null; selEnd = null }) {
+                            Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cancel))
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            clipboard.setText(AnnotatedString(selectionCitation()))
+                            selAnchor = null; selEnd = null
+                        }) { Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.copy_with_citation)) }
+                        IconButton(onClick = {
+                            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, selectionCitation())
+                            context.startActivity(Intent.createChooser(send, null))
+                        }) { Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share)) }
+                    },
+                ) else TopAppBar(
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { BackButton(onBack) },
                     actions = {
@@ -189,7 +280,7 @@ fun ReaderScreen(
                         IconButton(onClick = { showDisplay = true }) { Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.display_settings)) }
                     },
                 )
-                if (vm.trail.isNotEmpty()) TrailBar(vm.trail, current = title, onStep = onTrail)
+                if (vm.trail.isNotEmpty()) TrailBar(vm.trail, current = title, currentCategory = s.bookCategory, onStep = onTrail)
             }
         },
     ) { padding ->
@@ -198,25 +289,51 @@ fun ReaderScreen(
             s.loading -> Loading(Modifier.padding(padding))
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
                 val wide = maxWidth >= 600.dp
-                val select = { item: SegmentItem ->
-                    val opening = selectedKey == null
-                    selectedKey = item.key
-                    // on a phone the panel takes the lower part: keep the tapped segment in view
-                    if (opening && !wide) {
-                        val idx = s.items.indexOfFirst { it.key == item.key }
-                        if (idx >= 0) scope.launch { list.animateScrollToItem(idx) }
+                val tap = { item: SegmentItem ->
+                    if (selecting) {
+                        selEnd = item.key
+                    } else {
+                        val opening = selectedKey == null
+                        selectedKey = item.key
+                        // on a phone the panel takes the lower part: keep the tapped segment in view
+                        if (opening && !wide) scope.launch { scrollTo(item.key, animate = true) }
+                    }
+                }
+                val longPress = { item: SegmentItem ->
+                    selectedKey = null // the selection bar replaces the panel
+                    selAnchor = item.key
+                    selEnd = item.key
+                }
+                val focusColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                val selColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                val hlColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f)
+                val mark = { item: SegmentItem ->
+                    when {
+                        item.key in selection -> selColor
+                        item.key == selectedKey -> focusColor
+                        item.highlighted -> hlColor
+                        else -> null
                     }
                 }
                 val text = @Composable { m: Modifier ->
-                    Box(m) {
+                    Box(m.pinchToScale(
+                        onScale = { f -> liveScale = (baseScale * f).coerceIn(0.7f, 2f) },
+                        onEnd = { liveScale?.let(vm::setFontScale) },
+                    )) {
                         LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
                             // No item above the first section: the first visible item must be text, so that
                             // LazyColumn keeps it in place when the previous section is prepended. Loading
                             // or failing to load that section shows as an overlay instead.
-                            items(s.items, key = { it.key }, contentType = { it::class }) { item ->
-                                when (item) {
-                                    is HeaderItem -> SectionHeader(item.title)
-                                    is SegmentItem -> SegmentRow(item, prefs, selected = item.key == selectedKey) { select(item) }
+                            items(rows.rows, key = { it.key }, contentType = { it::class }) { row ->
+                                when (row) {
+                                    is HeaderRow -> SectionHeader(row.item.title)
+                                    is LineRow -> SegmentRow(row.item, prefs, mark(row.item), onClick = { tap(row.item) }, onLongClick = { longPress(row.item) })
+                                    is ParagraphRow -> ParagraphText(
+                                        row, prefs,
+                                        style = if (prefs.layout == Layout.Hebrew) heStyle(prefs.fontScale) else enStyle(prefs.fontScale),
+                                        mark = mark, onTap = tap, onLongPress = longPress,
+                                        onLayout = { paragraphLayouts[row.key] = it },
+                                    )
                                 }
                             }
                             item(key = "bottom") {
@@ -234,7 +351,7 @@ fun ReaderScreen(
                 val selected = s.items.firstOrNull { it.key == selectedKey } as? SegmentItem
                 val openLink = { r: ReaderRoute ->
                     // the selected segment becomes the newest step of the trail
-                    val from = selected?.let { TrailStep(it.ref.book.title, it.key, it.ref.human(), it.ref.hebrew()).encode() }
+                    val from = selected?.let { TrailStep(it.ref.book.title, it.key, it.ref.human(), it.ref.hebrew(), s.bookCategory).encode() }
                     onOpen(r.copy(trail = vm.trail + listOfNotNull(from)))
                 }
                 when {
@@ -265,7 +382,7 @@ fun ReaderScreen(
 
 /** The steps that led to this text, then the current place; tapping a step goes back to it. */
 @Composable
-private fun TrailBar(trail: List<String>, current: String, onStep: (Int) -> Unit) {
+private fun TrailBar(trail: List<String>, current: String, currentCategory: String, onStep: (Int) -> Unit) {
     val steps = remember(trail) { TrailStep.decodeAll(trail) }
     val state = rememberLazyListState()
     LaunchedEffect(steps.size) { state.scrollToItem(steps.size) } // show the newest steps
@@ -277,14 +394,23 @@ private fun TrailBar(trail: List<String>, current: String, onStep: (Int) -> Unit
         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).semantics { contentDescription = "" },
     ) {
         itemsIndexed(steps) { i, step ->
-            AssistChip(onClick = { onStep(i) }, label = { Text(pick(step.en, step.he), maxLines = 1) })
+            AssistChip(
+                onClick = { onStep(i) },
+                label = { Text(pick(step.en, step.he), maxLines = 1) },
+                leadingIcon = if (step.category.isEmpty()) null else {
+                    { Box(Modifier.size(8.dp).background(categoryColor(step.category), RoundedCornerShape(4.dp))) }
+                },
+            )
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp).size(16.dp),
             )
         }
         item {
-            FilterChip(selected = true, onClick = {}, label = { Text(current, maxLines = 1) })
+            FilterChip(
+                selected = true, onClick = {}, label = { Text(current, maxLines = 1) },
+                leadingIcon = { Box(Modifier.size(8.dp).background(categoryColor(currentCategory), RoundedCornerShape(4.dp))) },
+            )
         }
     }
 }
@@ -336,12 +462,8 @@ private fun enStyle(scale: Float) = TextStyle(
 )
 
 @Composable
-private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onClick: () -> Unit) {
-    val bg = when {
-        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-        item.highlighted -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f)
-        else -> MaterialTheme.colorScheme.surface
-    }
+private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val bg = mark ?: MaterialTheme.colorScheme.surface
     val he = item.he
     val en = item.en
     val refLabel = pick(item.ref.human(), item.ref.hebrew())
@@ -354,7 +476,7 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
             Modifier
                 .fillMaxWidth()
                 .background(bg)
-                .clickable(onClick = onClick)
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .semantics { contentDescription = refLabel }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
@@ -440,6 +562,19 @@ private fun ConnectionsPanel(
             IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.close_connections)) }
         }
         HorizontalDivider()
+        val pinned by cvm.pinned.collectAsStateWithLifecycle()
+        val actions = remember(cvm, onOpen) {
+            ConnectionsActions(
+                onFilter = cvm::setFilter, onFocus = cvm::setFocus, onPin = { cvm.togglePin(it) },
+                ensureTexts = cvm::ensureTexts, retryTexts = cvm::retryTexts,
+                onRetry = { cvm.load(item.key, item.ref.book.title) }, onOpen = onOpen,
+            )
+        }
+        BackHandler(enabled = conn.focus != null) { cvm.setFocus(null) }
+        if (conn.focus != null) {
+            CommentaryPager(conn, pinned, prefs, actions, Modifier.fillMaxSize())
+            return@Column
+        }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             val notes = item.he?.notes.orEmpty() + item.en?.notes.orEmpty()
             if (notes.isNotEmpty()) {
@@ -454,7 +589,7 @@ private fun ConnectionsPanel(
                     }
                 }
             }
-            connectionItems(conn, prefs, onToggle = cvm::toggle, onRetry = { cvm.load(item.key, item.ref.book.title) }, onOpen = onOpen)
+            connectionList(conn, pinned, prefs, actions)
         }
     }
 }
@@ -463,7 +598,10 @@ private fun ConnectionsPanel(
 @Composable
 private fun DisplaySheet(prefs: Prefs, vm: ReaderViewModel, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text(stringResource(R.string.layout), style = MaterialTheme.typography.titleSmall)
             val layouts = listOf(Layout.Hebrew to R.string.layout_hebrew, Layout.English to R.string.layout_english, Layout.Stacked to R.string.layout_both, Layout.SideBySide to R.string.layout_side)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -478,19 +616,22 @@ private fun DisplaySheet(prefs: Prefs, vm: ReaderViewModel, onDismiss: () -> Uni
             Text(stringResource(R.string.font_size), style = MaterialTheme.typography.titleSmall)
             var scale by remember { mutableStateOf(prefs.fontScale) }
             Slider(value = scale, onValueChange = { scale = it }, onValueChangeFinished = { vm.setFontScale(scale) }, valueRange = 0.7f..2f)
-            SwitchRow(stringResource(R.string.niqqud), prefs.niqqud, vm::setNiqqud)
-            SwitchRow(stringResource(R.string.cantillation), prefs.cantillation, vm::setCantillation)
-            Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
-            val themes = ThemeMode.entries
+            Text(stringResource(R.string.text_flow), style = MaterialTheme.typography.titleSmall)
+            val flows = listOf(TextFlow.Lines to R.string.flow_lines, TextFlow.Paragraph to R.string.flow_paragraph)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                themes.forEachIndexed { i, t ->
+                flows.forEachIndexed { i, (f, label) ->
                     SegmentedButton(
-                        selected = prefs.theme == t,
-                        onClick = { vm.setTheme(t) },
-                        shape = SegmentedButtonDefaults.itemShape(i, themes.size),
-                    ) { Text(t.label(), maxLines = 1) }
+                        selected = prefs.flow == f,
+                        onClick = { vm.setFlow(f) },
+                        shape = SegmentedButtonDefaults.itemShape(i, flows.size),
+                    ) { Text(stringResource(label), maxLines = 1) }
                 }
             }
+            SwitchRow(stringResource(R.string.niqqud), prefs.niqqud, vm::setNiqqud)
+            SwitchRow(stringResource(R.string.cantillation), prefs.cantillation, vm::setCantillation)
+            SwitchRow(stringResource(R.string.keep_screen_on), prefs.keepScreenOn, vm::setKeepScreenOn)
+            Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
+            ThemePicker(prefs.theme, vm::setTheme)
         }
     }
 }

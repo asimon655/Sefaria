@@ -94,4 +94,23 @@
     <string name="connection_texts_offline">אין חיבור: התחברו לרשת כדי לראות את הטקסטים.</string>
     <string name="error_not_found_plain">לא נמצא</string>
     <string name="other_divisions">חלוקות נוספות</string>
+    <string name="theme_stone">אבן</string>
+    <string name="theme_eink">דיו אלקטרוני</string>
+    <string name="theme_black">שחור</string>
+    <string name="text_flow">זרימת הטקסט</string>
+    <string name="flow_lines">פסוק בשורה</string>
+    <string name="flow_paragraph">פסקה</string>
+    <string name="keep_screen_on">השארת המסך דלוק בזמן קריאה</string>
+    <string name="pin">הצמדה</string>
+    <string name="unpin">ביטול הצמדה</string>
+    <string name="pinned_hint">מפרשים מוצמדים מופיעים כאן בכל פסוק</string>
+    <string name="all_categories">הכל</string>
+    <string name="back_to_list">חזרה לרשימה</string>
+    <string name="n_of_m">%1$d מתוך %2$d</string>
+    <string name="copy_selection">העתקת %1$s</string>
+    <string name="welcome">ברוכים הבאים</string>
+    <string name="welcome_text">בחרו את שפת הממשק ואת אופן הצגת הטקסטים. אפשר לשנות את שניהם בהמשך.</string>
+    <string name="text_layout">פריסת הטקסט</string>
+    <string name="selected_count">%1$d נבחרו</string>
+    <string name="get_started">בואו נתחיל</string>
 </resources>

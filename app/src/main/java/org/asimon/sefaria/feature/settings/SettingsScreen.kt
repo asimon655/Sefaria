@@ -45,6 +45,7 @@ import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.ThemeMode
 import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.ui.components.BackButton
+import org.asimon.sefaria.ui.components.ThemePicker
 import javax.inject.Inject
 
 @HiltViewModel
@@ -104,16 +105,7 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
             }
             HorizontalDivider()
             Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
-            val themes = ThemeMode.entries
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                themes.forEachIndexed { i, t ->
-                    SegmentedButton(
-                        selected = prefs.theme == t,
-                        onClick = { vm.setTheme(t) },
-                        shape = SegmentedButtonDefaults.itemShape(i, themes.size),
-                    ) { Text(t.label(), maxLines = 1) }
-                }
-            }
+            ThemePicker(prefs.theme, vm::setTheme)
             HorizontalDivider()
             Text(stringResource(R.string.server), style = MaterialTheme.typography.titleSmall)
             OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.server_url)) })
