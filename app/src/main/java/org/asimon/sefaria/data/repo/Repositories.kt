@@ -74,6 +74,9 @@ class CachedFetcher(
 ) {
     val build get() = buildInfo.current
 
+    /** Drops a cached response, so the next [get] fetches it again. */
+    suspend fun forget(key: String) = cache.delete(key)
+
     suspend fun refreshBuild(): String? {
         val r = api.manifest()
         if (r is ApiResult.Ok) buildInfo.current = r.value.buildId

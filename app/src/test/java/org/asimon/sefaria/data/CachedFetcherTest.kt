@@ -21,6 +21,7 @@ class CachedFetcherTest {
         val rows = HashMap<String, CacheEntry>()
         override suspend fun get(key: String) = rows[key]
         override suspend fun put(entry: CacheEntry) { rows[entry.key] = entry }
+        override suspend fun delete(key: String) { rows.remove(key) }
         override suspend fun touch(key: String, now: Long) { rows[key]?.let { rows[key] = it.copy(lastAccess = now) } }
         override suspend fun bytes() = rows.values.sumOf { it.json.length.toLong() }
         override suspend fun trim(keepBytes: Long) = Unit

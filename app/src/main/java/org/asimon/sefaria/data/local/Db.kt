@@ -61,6 +61,9 @@ interface CacheDao {
     @Upsert
     suspend fun put(entry: CacheEntry)
 
+    @Query("DELETE FROM cache WHERE `key` = :key")
+    suspend fun delete(key: String)
+
     @Query("UPDATE cache SET last_access = :now WHERE `key` = :key")
     suspend fun touch(key: String, now: Long)
 

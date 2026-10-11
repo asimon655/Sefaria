@@ -116,7 +116,7 @@ class PackRepository(
     /** The server's downloadable books by title (cached per build). */
     suspend fun available(): Load<Map<String, PackDto>> {
         memo?.let { (b, m) -> if (b == fetcher.build) return Load.Ok(m) }
-        val r = fetcher.get("packs", { json ->
+        val r = fetcher.get(LISTING, { json ->
             withContext(Dispatchers.Default) { SefariaJson.decodeFromString(ListSerializer(PackDto.serializer()), json) }
         }) { api.packs(it) }.map { list -> list.associateBy { it.book } }
         if (r is Load.Ok && !r.offline) memo = fetcher.build to r.value
@@ -133,14 +133,25 @@ class PackRepository(
         if (jobs[p.book]?.isActive == true) return
         _downloads.update { it + (p.book to DownloadState.Running(0, p.bytes)) }
         jobs[p.book] = scope.launch {
-            val part = store.partFor(p.book, p.sha256)
-            store.dropParts(p.book, keep = part)
-            val err = downloader.download(p, part) { done ->
-                _downloads.update { if (p.book in it) it + (p.book to DownloadState.Running(done, p.bytes)) else it }
-            } ?: store.install(p.book, part)?.let { AppError.BadResponse(it) }
+            var err = fetch(p)
+            if (err is AppError.BadResponse) {
+                // the listing may be stale (cached before the server's packs changed): refetch it once
+                memo = null
+                fetcher.forget(LISTING)
+                val fresh = (available() as? Load.Ok)?.value?.get(p.book)
+                if (fresh != null && fresh.sha256 != p.sha256) err = fetch(fresh)
+            }
             _downloads.update { if (err == null) it - p.book else it + (p.book to DownloadState.Failed(err)) }
             jobs.remove(p.book)
         }
+    }
+
+    private suspend fun fetch(p: PackDto): AppError? {
+        val part = store.partFor(p.book, p.sha256)
+        store.dropParts(p.book, keep = part)
+        return downloader.download(p, part) { done ->
+            _downloads.update { if (p.book in it) it + (p.book to DownloadState.Running(done, p.bytes)) else it }
+        } ?: store.install(p.book, part)?.let { AppError.BadResponse(it) }
     }
 
     /** Stops a download; the partial file is kept so the next download resumes. */
@@ -152,5 +163,9 @@ class PackRepository(
     suspend fun delete(book: String) {
         cancel(book)
         store.delete(book)
+    }
+
+    private companion object {
+        const val LISTING = "packs"
     }
 }
