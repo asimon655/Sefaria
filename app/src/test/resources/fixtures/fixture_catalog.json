@@ -212,5 +212,45 @@
   },
   "slots": 14,
   "versions": null
+ },
+ {
+  "title": "Zohar",
+  "he": "זהר",
+  "categories": null,
+  "desc": {},
+  "short_desc": {},
+  "schema": {
+   "key": "Zohar",
+   "en": "Zohar",
+   "children": [
+    {
+     "key": "Introduction",
+     "en": "Introduction",
+     "he": "הקדמה",
+     "address_types": [
+      "Integer",
+      "Integer"
+     ],
+     "shape": [
+      3,
+      3,
+      4
+     ],
+     "offsets": {
+      "sub": [
+       0,
+       3,
+       6
+      ]
+     },
+     "slot_start": 0,
+     "slot_end": 10
+    }
+   ],
+   "slot_start": 0,
+   "slot_end": 10
+  },
+  "slots": 10,
+  "versions": null
  }
 ]

@@ -32,6 +32,8 @@
     <string name="layout_english">English</string>
     <string name="layout_both">שתיהן</string>
     <string name="layout_side">זו לצד זו</string>
+    <string name="connections">קישורים</string>
+    <string name="no_connections">אין קישורים</string>
     <string name="font_size">גודל גופן</string>
     <string name="niqqud">ניקוד</string>
     <string name="cantillation">טעמי המקרא</string>

@@ -1,5 +1,13 @@
 package org.asimon.sefaria.feature.reader
 
+import androidx.compose.material3.LinearProgressIndicator
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
+import androidx.compose.foundation.layout.PaddingValues
+import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.feature.connections.connectionItems
+import org.asimon.sefaria.feature.connections.ConnectionsViewModel
+import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.ui.components.label
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.data.repo.AppError
@@ -85,7 +93,7 @@ import org.asimon.sefaria.ui.components.Loading
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
+fun ReaderScreen(onBack: () -> Unit, onOpen: (ReaderRoute) -> Unit, vm: ReaderViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val list = rememberLazyListState()
@@ -94,9 +102,7 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
 
     val title by remember {
         derivedStateOf {
-            // list index 0 is the "top" edge row, so item i is at list index i + 1
-            val first = (list.firstVisibleItemIndex - 1).coerceAtLeast(0)
-            when (val item = s.items.getOrNull(first)) {
+            when (val item = s.items.getOrNull(list.firstVisibleItemIndex)) {
                 is SegmentItem -> item.sectionTitle
                 is HeaderItem -> item.title
                 null -> s.bookTitle
@@ -107,13 +113,19 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
     // scroll to the target once, then let the view model page in both directions
     LaunchedEffect(s.initialIndex) {
         val idx = s.initialIndex ?: return@LaunchedEffect
-        list.scrollToItem(idx + 1)
+        val key = s.items.getOrNull(idx)?.key
+        list.scrollToItem(idx)
+        // page only once the target is laid out; a prepend before that would shift the
+        // pending index into the previous section
+        withTimeoutOrNull(2000) {
+            snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == key } }.first { it }
+        }
         vm.initialScrollDone()
-        vm.onVisible(list.firstVisibleItemIndex - 1, (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: idx) - 1)
+        vm.onVisible(list.firstVisibleItemIndex, list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: idx)
     }
     LaunchedEffect(list) {
         snapshotFlow { list.firstVisibleItemIndex to (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) }
-            .collect { (first, last) -> vm.onVisible(first - 1, last - 1) }
+            .collect { (first, last) -> vm.onVisible(first, last) }
     }
 
     Scaffold(
@@ -131,10 +143,11 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
         when {
             s.error != null -> ErrorMessage(s.error!!.text(), { vm.open() }, Modifier.padding(padding))
             s.loading -> Loading(Modifier.padding(padding))
-            else -> LazyColumn(state = list, contentPadding = padding, modifier = Modifier.fillMaxWidth()) {
-                item(key = "top") {
-                    EdgeRow(loading = s.loadingPrev, error = s.prevError, atEdge = s.atStart, edgeText = "", onRetry = vm::loadPrev)
-                }
+            // No item above the first section: the first visible item must be text, so that
+            // LazyColumn keeps it in place when the previous section is prepended. Loading
+            // or failing to load that section shows as an overlay instead.
+            else -> Box(Modifier.fillMaxWidth().padding(padding)) {
+              LazyColumn(state = list, modifier = Modifier.fillMaxWidth()) {
                 items(s.items, key = { it.key }, contentType = { it::class }) { item ->
                     when (item) {
                         is HeaderItem -> SectionHeader(item.title)
@@ -144,13 +157,20 @@ fun ReaderScreen(onBack: () -> Unit, vm: ReaderViewModel = hiltViewModel()) {
                 item(key = "bottom") {
                     EdgeRow(loading = s.loadingNext, error = s.nextError, atEdge = s.atEnd, edgeText = stringResource(R.string.end_of_book, s.bookTitle), onRetry = vm::loadNext)
                 }
+              }
+              if (s.loadingPrev) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+              s.prevError?.let { e ->
+                  TextButton(onClick = vm::loadPrev, modifier = Modifier.align(Alignment.TopCenter)) {
+                      Text(e.text() + " · " + stringResource(R.string.retry))
+                  }
+              }
             }
         }
     }
 
     if (showDisplay) DisplaySheet(prefs, vm, onDismiss = { showDisplay = false })
     val selected = s.items.firstOrNull { it.key == selectedKey } as? SegmentItem
-    if (selected != null) SegmentSheet(selected, vm, onDismiss = { selectedKey = null })
+    if (selected != null) SegmentSheet(selected, vm, prefs, onOpen = { selectedKey = null; onOpen(it) }, onDismiss = { selectedKey = null })
 }
 
 @Composable
@@ -213,6 +233,12 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, selected: Boolean, onCli
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                if (item.links > 0) Text(
+                    item.links.toString(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.semantics { contentDescription = "" },
+                )
                 if ((he?.notes.orEmpty() + en?.notes.orEmpty()).isNotEmpty()) {
                     Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = stringResource(R.string.has_notes), Modifier.padding(top = 4.dp).width(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -243,8 +269,17 @@ private fun SegText(text: RichText?, style: TextStyle, modifier: Modifier = Modi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SegmentSheet(item: SegmentItem, vm: ReaderViewModel, onDismiss: () -> Unit) {
+private fun SegmentSheet(
+    item: SegmentItem,
+    vm: ReaderViewModel,
+    prefs: Prefs,
+    onOpen: (ReaderRoute) -> Unit,
+    onDismiss: () -> Unit,
+    cvm: ConnectionsViewModel = hiltViewModel(),
+) {
     val bookmarked by remember(item.key) { vm.bookmarked(item.ref) }.collectAsState(initial = false)
+    LaunchedEffect(item.key) { cvm.load(item.key) }
+    val conn by cvm.state.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val citation = buildString {
@@ -253,41 +288,42 @@ private fun SegmentSheet(item: SegmentItem, vm: ReaderViewModel, onDismiss: () -
         append("— ").append(item.ref.human())
     }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
-            Text(item.ref.human(), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp))
-            Text(item.ref.hebrew(), style = MaterialTheme.typography.titleSmall.copy(textDirection = TextDirection.Rtl), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+            item(key = "head") {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(pick(item.ref.human(), item.ref.hebrew()), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    IconButton(onClick = { vm.toggleBookmark(item, bookmarked) }) {
+                        Icon(
+                            if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = stringResource(if (bookmarked) R.string.remove_bookmark else R.string.bookmark),
+                        )
+                    }
+                    IconButton(onClick = {
+                        clipboard.setText(AnnotatedString(citation))
+                        onDismiss()
+                    }) { Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.copy_with_citation)) }
+                    IconButton(onClick = {
+                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, citation)
+                        context.startActivity(Intent.createChooser(send, null))
+                        onDismiss()
+                    }) { Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share)) }
+                }
+            }
             val notes = item.he?.notes.orEmpty() + item.en?.notes.orEmpty()
             if (notes.isNotEmpty()) {
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                for ((i, n) in notes.withIndex()) Text(
-                    "${i + 1}. $n",
-                    style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+                item(key = "notes") {
+                    Column {
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        for ((i, n) in notes.withIndex()) Text(
+                            "${i + 1}. $n",
+                            style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            ListItem(
-                headlineContent = { Text(stringResource(if (bookmarked) R.string.remove_bookmark else R.string.bookmark)) },
-                leadingContent = { Icon(if (bookmarked) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder, contentDescription = null) },
-                modifier = Modifier.clickable { vm.toggleBookmark(item, bookmarked) },
-            )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.copy_with_citation)) },
-                leadingContent = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
-                modifier = Modifier.clickable {
-                    clipboard.setText(AnnotatedString(citation))
-                    onDismiss()
-                },
-            )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.share)) },
-                leadingContent = { Icon(Icons.Outlined.Share, contentDescription = null) },
-                modifier = Modifier.clickable {
-                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, citation)
-                    context.startActivity(Intent.createChooser(send, null))
-                    onDismiss()
-                },
-            )
+            item(key = "div") { HorizontalDivider(Modifier.padding(top = 8.dp)) }
+            connectionItems(conn, prefs, onToggle = cvm::toggle, onRetry = { cvm.load(item.key) }, onOpen = onOpen)
         }
     }
 }

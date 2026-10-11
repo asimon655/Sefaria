@@ -8,6 +8,7 @@ import kotlinx.serialization.json.int
 import org.asimon.sefaria.core.text.Hebrew
 import org.asimon.sefaria.data.remote.BookDto
 import org.asimon.sefaria.data.remote.NodeDto
+import org.asimon.sefaria.data.remote.OffsetsDto
 
 /**
  * The shape of a jagged array (mirrors the server's catalog.Shape): at the segment level
@@ -86,6 +87,7 @@ class Node(
     val shape: Shape?,
     val slotStart: Int,
     val slotEnd: Int,
+    val offsets: OffsetsDto? = null,
 ) {
     var parent: Node? = null
         private set
@@ -107,6 +109,19 @@ class Node(
     }
 
     fun child(title: String): Node? = byTitle[Hebrew.normalizeTitle(title)]
+
+    /**
+     * Numbering offset of [level] (0-based) given the indices above it: index i is labeled
+     * i + 1 + offset. Mirrors catalog.Node.Offset on the server.
+     */
+    fun offset(level: Int, above: List<Int>): Int {
+        val o = offsets ?: return 0
+        return when (level) {
+            0 -> o.top
+            1 -> above.firstOrNull()?.let { o.sub.getOrNull(it) } ?: 0
+            else -> 0
+        }
+    }
     fun defaultChild(): Node? = children?.firstOrNull { it.isDefault }
 
     /** The named nodes from the book root (exclusive) down to this node. */
@@ -125,7 +140,7 @@ class Node(
             key = d.key, en = d.en, he = d.he, altTitles = d.altTitles, isDefault = d.default,
             children = d.children?.map(::from),
             addressTypes = d.addressTypes, sectionNames = d.sectionNames,
-            shape = Shape.parse(d.shape), slotStart = d.slotStart, slotEnd = d.slotEnd,
+            shape = Shape.parse(d.shape), slotStart = d.slotStart, slotEnd = d.slotEnd, offsets = d.offsets,
         )
     }
 }

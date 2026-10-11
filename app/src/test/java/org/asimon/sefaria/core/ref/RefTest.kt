@@ -45,7 +45,7 @@ class RefTest {
                 assertEquals(input, want, e.error)
             }
         }
-        for (input in listOf("Genesis 4:1", "Genesis 1:40", "Berakhot 1a")) {
+        for (input in listOf("Genesis 4:1", "Genesis 1:40", "Berakhot 1a", "Zohar, Introduction 2:1")) {
             try {
                 Ref.parse(catalog, input).slots()
                 fail("$input in range")
@@ -63,6 +63,7 @@ class RefTest {
             Quad("Berakhot", 10, "Berakhot.2b.1", "Berakhot.2b"),
             Quad("Pesach Haggadah", 4, "Pesach_Haggadah,_Magid,_Ha_Lachma_Anya.2", "Pesach_Haggadah,_Magid,_Ha_Lachma_Anya"),
             Quad("Ohr LaYesharim on Jerusalem Talmud Yoma", 10, "Ohr_LaYesharim_on_Jerusalem_Talmud_Yoma.1.2.3", "Ohr_LaYesharim_on_Jerusalem_Talmud_Yoma.1.2"),
+            Quad("Zohar", 4, "Zohar,_Introduction.2.5", "Zohar,_Introduction.2"),
         )) {
             val r = Ref.at(catalog.bookByTitle(book)!!, slot)
             assertEquals(seg, r.url())
@@ -88,6 +89,10 @@ class RefTest {
         assertEquals("Pesach_Haggadah,_Magid,_Ha_Lachma_Anya", hag.nextSection(Ref.parse(catalog, "Pesach Haggadah, Kadesh"))?.url())
         assertEquals("Pesach_Haggadah,_Magid,_Ha_Lachma_Anya", Ref.parse(catalog, "Pesach Haggadah, Magid").openSection().url())
         assertEquals("Genesis.2.5", Ref.parse(catalog, "Genesis 2").segment(5).url())
+        // Zohar-style numbering: chapter 2 starts at paragraph 4
+        val z2 = Ref.parse(catalog, "Zohar, Introduction 2")
+        assertEquals(3 until 4, z2.segment(4).slots())
+        assertEquals(5, Ref.at(catalog.bookByTitle("Zohar")!!, 4).number())
     }
 
     private data class Quad(val a: String, val b: Int, val c: String, val d: String)

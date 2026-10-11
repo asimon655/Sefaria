@@ -32,6 +32,8 @@
     <string name="layout_english">English</string>
     <string name="layout_both">Both</string>
     <string name="layout_side">Side</string>
+    <string name="connections">Connections</string>
+    <string name="no_connections">No connections</string>
     <string name="font_size">Font size</string>
     <string name="niqqud">Vowels (niqqud)</string>
     <string name="cantillation">Cantillation (te\'amim)</string>

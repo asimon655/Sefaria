@@ -71,9 +71,14 @@ data class NodeDto(
     @SerialName("address_types") val addressTypes: List<String> = emptyList(),
     @SerialName("section_names") val sectionNames: List<String> = emptyList(),
     val shape: JsonElement? = null, // a number at the segment level, else nested arrays with nulls
+    val offsets: OffsetsDto? = null,
     @SerialName("slot_start") val slotStart: Int = 0,
     @SerialName("slot_end") val slotEnd: Int = 0,
 )
+
+/** Numbering offsets (Zohar-style continuous paragraph numbers); see Node.offset. */
+@Serializable
+data class OffsetsDto(val top: Int = 0, val sub: List<Int> = emptyList())
 
 @Serializable
 data class AltNodeDto(
@@ -112,6 +117,39 @@ data class SectionDto(
     val ref: String,
     @SerialName("he_ref") val heRef: String = "",
     val first: Int = 1,
+    val he: List<String> = emptyList(),
+    val en: List<String> = emptyList(),
+    /** Links touching each segment (builds with links). */
+    @SerialName("link_counts") val linkCounts: List<Int> = emptyList(),
+)
+
+@Serializable
+data class LinksDto(val ref: String, val groups: List<LinkGroupDto> = emptyList())
+
+@Serializable
+data class LinkGroupDto(
+    val category: String,
+    val en: String = "",
+    val he: String = "",
+    val count: Int = 0,
+    val books: List<LinkBookDto> = emptyList(),
+)
+
+@Serializable
+data class LinkBookDto(
+    val title: String,
+    val he: String = "",
+    val count: Int = 0,
+    val links: List<LinkDto> = emptyList(),
+)
+
+@Serializable
+data class LinkDto(
+    val anchor: String,
+    val ref: String,
+    val human: String = "",
+    @SerialName("he_ref") val heRef: String = "",
+    val type: String = "",
     val he: List<String> = emptyList(),
     val en: List<String> = emptyList(),
 )

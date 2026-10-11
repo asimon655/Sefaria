@@ -22,5 +22,6 @@ fun Book.prevSection(section: Ref): Ref? {
     return if (start > 0) sectionAt(start - 1) else null
 }
 
-/** The segment ref at a 1-based segment number within a section. */
-fun Ref.segment(number: Int): Ref = copy(sections = sections + (number - 1), to = null)
+/** The segment ref with a displayed segment number within a section (numbering offsets undone). */
+fun Ref.segment(number: Int): Ref =
+    copy(sections = sections + (number - 1 - node.offset(sections.size, sections)), to = null)

@@ -57,6 +57,7 @@ data class SegmentItem(
     val en: RichText?,
     val sectionTitle: String,
     val highlighted: Boolean,
+    val links: Int = 0, // connections touching this segment
 ) : ReaderItem
 
 data class ReaderState(
@@ -267,7 +268,8 @@ class ReaderViewModel @Inject constructor(
                 he = he?.let { Html.parse(it, stripNiqqud = !o.niqqud, stripCantillation = !o.cantillation) },
                 en = en?.let { Html.parse(it) },
                 sectionTitle = title,
-                highlighted = (start + number - 1) in hl,
+                highlighted = (start + i) in hl, // whole-section responses: segment i is slot start + i
+                links = c.text.linkCounts.getOrNull(i) ?: 0,
             )
         }
         return out

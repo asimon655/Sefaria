@@ -36,6 +36,13 @@ data class Ref(
         return n.slotStart + r.first until n.slotStart + end
     }
 
+    /** The displayed number of the last section level (for a segment, its number), including offsets. */
+    fun number(): Int {
+        val last = sections.size - 1
+        if (last < 0) return 0
+        return sections[last] + 1 + node.offset(last, sections.subList(0, last))
+    }
+
     /** The ref without its last level (the section a segment is in). */
     fun section(): Ref = copy(sections = sections.dropLast(1), to = null)
 
@@ -52,13 +59,15 @@ data class Ref(
         val b = StringBuilder(if (he) book.he else book.title)
         for (n in node.path()) b.append(", ").append(if (he && n.he.isNotEmpty()) n.he else n.en)
         val types = node.addressTypes
-        fun labels(idx: List<Int>, offset: Int) =
-            idx.withIndex().joinToString(sep) { (i, v) -> label(types[offset + i], v) }
+        // formats full[from:], applying numbering offsets
+        fun labels(full: List<Int>, from: Int) = (from until full.size).joinToString(sep) { i ->
+            label(types[i], full[i] + node.offset(i, full.subList(0, i)))
+        }
         if (sections.isNotEmpty()) b.append(first).append(labels(sections, 0))
         if (to != null && sections != to) {
             var k = 0
             while (k < to.size - 1 && to[k] == sections[k]) k++
-            b.append('-').append(labels(to.drop(k), k))
+            b.append('-').append(labels(to, k))
         }
         return b.toString()
     }
@@ -127,7 +136,7 @@ data class Ref(
             val from = if (dash < 0) s else s.substring(0, dash)
             val types = r.node.addressTypes
             val fromTokens = splitSections(from)
-            val start = parseLabels(types, fromTokens)
+            val start = unoffset(r.node, parseLabels(types, fromTokens), 0)
             if (dash < 0) {
                 // a bare daf number ("Nedarim 37") means both amudim
                 val last = start.size - 1
@@ -140,7 +149,14 @@ data class Ref(
             if (endTokens.size > start.size) throw RefException(RefError.BadSection, "range end longer than start")
             val k = start.size - endTokens.size // right-aligned: Genesis 1:1-5
             val end = parseLabels(types.drop(k), endTokens)
-            return r.copy(sections = start, to = start.take(k) + end)
+            return r.copy(sections = start, to = unoffset(r.node, start.take(k) + end, k))
+        }
+
+        /** Turns labels (number - 1) at levels from.. into indices, undoing numbering offsets. */
+        private fun unoffset(n: Node, labels: List<Int>, from: Int): List<Int> {
+            val idx = labels.toMutableList()
+            for (i in from until idx.size) idx[i] -= n.offset(i, idx.subList(0, i))
+            return idx
         }
 
         private fun splitSections(s: String): List<String> =

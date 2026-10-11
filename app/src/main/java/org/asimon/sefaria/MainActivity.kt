@@ -106,7 +106,7 @@ private fun AppNav() {
                 BookScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
             }
             composable<ReaderRoute> {
-                ReaderScreen(onBack = { nav.popBackStack() })
+                ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) })
             }
             composable<SearchRoute> {
                 SearchScreen(onOpen = { nav.navigate(it) })

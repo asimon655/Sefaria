@@ -49,6 +49,16 @@ class Api(
             versions.en?.let { put("en", it.toString()) }
         })
 
+    /** Connections of a ref; [book] limits them to one book, [withText] inlines both languages. */
+    suspend fun links(ref: String, withText: Boolean = false, book: String? = null, etag: String? = null) =
+        get("/v1/links/" + segment(ref), LinksDto.serializer(), etag, buildMap {
+            if (withText) {
+                put("with_text", "1")
+                put("lang", "he,en")
+            }
+            book?.let { put("book", it) }
+        })
+
     suspend fun resolve(q: String) = get("/v1/resolve", ResolveDto.serializer(), query = mapOf("q" to q))
 
     private suspend fun <T> get(

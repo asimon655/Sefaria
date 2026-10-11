@@ -20,6 +20,7 @@ import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.LinksRepository
 import org.asimon.sefaria.data.repo.TextRepository
 import org.asimon.sefaria.data.repo.UserDataRepository
 import java.util.concurrent.TimeUnit
@@ -64,6 +65,9 @@ object AppModule {
 
     @Provides @Singleton
     fun text(api: Api, fetcher: CachedFetcher) = TextRepository(api, fetcher)
+
+    @Provides @Singleton
+    fun links(api: Api, fetcher: CachedFetcher) = LinksRepository(api, fetcher)
 
     @Provides @Singleton
     fun userData(db: SefariaDb) = UserDataRepository(db.user())

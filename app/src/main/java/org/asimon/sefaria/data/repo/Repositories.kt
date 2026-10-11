@@ -17,6 +17,7 @@ import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.BookDto
+import org.asimon.sefaria.data.remote.LinksDto
 import org.asimon.sefaria.data.remote.ResolveDto
 import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TextDto
@@ -145,6 +146,7 @@ data class SectionText(
     val he: List<String>,
     val en: List<String>,
     val versions: Map<String, VersionDto>,
+    val linkCounts: List<Int> = emptyList(),
 ) {
     val size get() = maxOf(he.size, en.size)
 }
@@ -156,12 +158,26 @@ class TextRepository(private val api: Api, private val fetcher: CachedFetcher) {
         return fetcher.get("text:$ref|${versions.key}", ::decode) { etag -> api.text(ref, versions, etag) }
             .map { t ->
                 val s = t.sections.firstOrNull()
-                SectionText(s?.ref ?: ref, s?.heRef ?: t.heRef, s?.first ?: 1, s?.he.orEmpty(), s?.en.orEmpty(), t.versions)
+                SectionText(s?.ref ?: ref, s?.heRef ?: t.heRef, s?.first ?: 1, s?.he.orEmpty(), s?.en.orEmpty(), t.versions, s?.linkCounts.orEmpty())
             }
     }
 
     private suspend fun decode(json: String): TextDto =
         withContext(Dispatchers.Default) { SefariaJson.decodeFromString(TextDto.serializer(), json) }
+}
+
+/** Connections (Phase 4). Cached like texts, so connections of read segments work offline. */
+class LinksRepository(private val api: Api, private val fetcher: CachedFetcher) {
+    /** All connections of a segment, grouped, without text. */
+    suspend fun links(ref: String): Load<LinksDto> =
+        fetcher.get("links:$ref", ::decode) { etag -> api.links(ref, etag = etag) }
+
+    /** One book's connections of a segment, with their text. */
+    suspend fun withText(ref: String, book: String): Load<LinksDto> =
+        fetcher.get("links:$ref|$book", ::decode) { etag -> api.links(ref, withText = true, book = book, etag = etag) }
+
+    private suspend fun decode(json: String): LinksDto =
+        withContext(Dispatchers.Default) { SefariaJson.decodeFromString(LinksDto.serializer(), json) }
 }
 
 class UserDataRepository(private val dao: UserDao, private val now: () -> Long = System::currentTimeMillis) {
