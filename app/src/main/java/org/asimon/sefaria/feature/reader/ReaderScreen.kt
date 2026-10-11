@@ -234,6 +234,15 @@ fun ReaderScreen(
             }
         }
     }
+    // Snap to verses while connections are open (verse-per-line only; see Snap.kt). Runs after
+    // the follow effect above has seen the gesture end, and its own scroll ends on a verse top.
+    LaunchedEffect(list, selectedKey != null, prefs.snapToVerse, paragraphs) {
+        if (selectedKey == null || !prefs.snapToVerse || paragraphs) return@LaunchedEffect
+        snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
+            val target = snapTarget(list.layoutInfo, isVerse = { i -> currentRows.rows.getOrNull(i) is LineRow }) ?: return@collect
+            list.animateScrollToItem(target)
+        }
+    }
     BackHandler(enabled = selecting) { selAnchor = null; selEnd = null }
     BackHandler(enabled = !selecting && selectedKey != null) { selectedKey = null }
 
@@ -650,6 +659,7 @@ private fun DisplaySheet(prefs: Prefs, vm: ReaderViewModel, onDismiss: () -> Uni
             SwitchRow(stringResource(R.string.niqqud), prefs.niqqud, vm::setNiqqud)
             SwitchRow(stringResource(R.string.cantillation), prefs.cantillation, vm::setCantillation)
             SwitchRow(stringResource(R.string.keep_screen_on), prefs.keepScreenOn, vm::setKeepScreenOn)
+            SwitchRow(stringResource(R.string.snap_to_verse), prefs.snapToVerse, vm::setSnapToVerse)
             Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
             ThemePicker(prefs.theme, vm::setTheme)
         }

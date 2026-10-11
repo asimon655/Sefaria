@@ -28,6 +28,8 @@ data class Prefs(
     val theme: ThemeMode = ThemeMode.System,
     val flow: TextFlow = TextFlow.Lines,
     val keepScreenOn: Boolean = false,
+    /** While connections are open, scrolling settles with a verse at the top (feature/reader/Snap.kt). */
+    val snapToVerse: Boolean = true,
     /** Commentators whose text shows directly in the connections panel, in pin order (collective titles). */
     val pinned: List<String> = emptyList(),
     val onboarded: Boolean = true, // until the store is read; then the stored value
@@ -44,6 +46,7 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
         val theme = stringPreferencesKey("theme")
         val flow = stringPreferencesKey("flow")
         val keepScreenOn = booleanPreferencesKey("keep_screen_on")
+        val snapToVerse = booleanPreferencesKey("snap_to_verse")
         val pinned = stringPreferencesKey("pinned") // titles joined by '\n'
         val onboarded = booleanPreferencesKey("onboarded")
     }
@@ -58,6 +61,7 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
             theme = p[K.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.System,
             flow = p[K.flow]?.let { runCatching { TextFlow.valueOf(it) }.getOrNull() } ?: TextFlow.Lines,
             keepScreenOn = p[K.keepScreenOn] ?: false,
+            snapToVerse = p[K.snapToVerse] ?: true,
             pinned = p[K.pinned]?.split('\n')?.filter { it.isNotEmpty() }.orEmpty(),
             onboarded = p[K.onboarded] ?: false,
         )
@@ -76,6 +80,7 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
     suspend fun setTheme(v: ThemeMode) = store.edit { it[K.theme] = v.name }
     suspend fun setFlow(v: TextFlow) = store.edit { it[K.flow] = v.name }
     suspend fun setKeepScreenOn(v: Boolean) = store.edit { it[K.keepScreenOn] = v }
+    suspend fun setSnapToVerse(v: Boolean) = store.edit { it[K.snapToVerse] = v }
     suspend fun setOnboarded() = store.edit { it[K.onboarded] = true }
 
     /** Pins or unpins a commentator (by collective title). */

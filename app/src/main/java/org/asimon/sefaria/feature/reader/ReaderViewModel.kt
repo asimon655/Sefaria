@@ -242,6 +242,7 @@ class ReaderViewModel @Inject constructor(
     fun setTheme(v: ThemeMode) = viewModelScope.launch { settings.setTheme(v) }
     fun setFlow(v: TextFlow) = viewModelScope.launch { settings.setFlow(v) }
     fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { settings.setKeepScreenOn(v) }
+    fun setSnapToVerse(v: Boolean) = viewModelScope.launch { settings.setSnapToVerse(v) }
 
     private fun fail(error: AppError) = _state.update { it.copy(loading = false, error = error) }
 

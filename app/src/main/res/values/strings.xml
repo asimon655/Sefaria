@@ -113,4 +113,5 @@
     <string name="text_layout">Text layout</string>
     <string name="selected_count">%1$d selected</string>
     <string name="get_started">Let’s begin</string>
+    <string name="snap_to_verse">Snap to verse while connections are open</string>
 </resources>
