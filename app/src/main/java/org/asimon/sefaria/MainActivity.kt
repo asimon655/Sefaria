@@ -14,7 +14,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Bookmarks
-import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import androidx.navigation.toRoute
+import org.asimon.sefaria.core.TrailStep
+import org.asimon.sefaria.feature.home.HomeScreen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -39,7 +45,6 @@ import org.asimon.sefaria.feature.book.BookScreen
 import org.asimon.sefaria.feature.library.LibraryScreen
 import org.asimon.sefaria.feature.reader.ReaderScreen
 import org.asimon.sefaria.feature.saved.SavedScreen
-import org.asimon.sefaria.feature.search.SearchScreen
 import org.asimon.sefaria.feature.settings.SettingsScreen
 import org.asimon.sefaria.ui.theme.SefariaTheme
 import javax.inject.Inject
@@ -64,41 +69,48 @@ class MainActivity : ComponentActivity() {
 private data class Tab(val route: Any, val type: KClass<*>, @StringRes val label: Int, val icon: ImageVector)
 
 private val tabs = listOf(
+    Tab(HomeRoute, HomeRoute::class, R.string.tab_home, Icons.Outlined.Home),
     Tab(LibraryRoute(), LibraryRoute::class, R.string.tab_library, Icons.AutoMirrored.Outlined.LibraryBooks),
-    Tab(SearchRoute, SearchRoute::class, R.string.tab_search, Icons.Outlined.Search),
     Tab(SavedRoute, SavedRoute::class, R.string.tab_saved, Icons.Outlined.Bookmarks),
 )
 
+/** Bottom bar on phones, a side rail on wide screens (tablets, landscape); hidden in the reader. */
 @Composable
 private fun AppNav() {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val dest = entry?.destination
     val showBar = dest != null && !dest.hasRoute(ReaderRoute::class) && !dest.hasRoute(SettingsRoute::class)
-    Scaffold(
-        bottomBar = {
-            if (showBar) NavigationBar {
-                for (tab in tabs) {
-                    val selected = dest.hierarchy.any { it.hasRoute(tab.type) } ||
-                        (tab.type == LibraryRoute::class && dest.hasRoute(BookRoute::class))
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = { nav.switchTab(tab.route) },
-                        icon = { Icon(tab.icon, contentDescription = null) },
-                        label = { Text(stringResource(tab.label)) },
-                    )
-                }
+    NavigationSuiteScaffold(
+        navigationSuiteItems = {
+            for (tab in tabs) {
+                val selected = dest?.hierarchy?.any { it.hasRoute(tab.type) } == true ||
+                    (tab.type == LibraryRoute::class && dest?.hasRoute(BookRoute::class) == true)
+                item(
+                    selected = selected,
+                    onClick = { nav.switchTab(tab.route) },
+                    icon = { Icon(tab.icon, contentDescription = null) },
+                    label = { Text(stringResource(tab.label)) },
+                )
             }
         },
-    ) { padding ->
-        // the bottom bar owns the bottom inset; screens' own Scaffolds handle the top
-        val bottom = PaddingValues(bottom = padding.calculateBottomPadding())
-        NavHost(nav, startDestination = LibraryRoute(), modifier = Modifier.padding(bottom).consumeWindowInsets(bottom)) {
+        // by width alone: a phone in landscape also gets the rail, which keeps its short height for content
+        layoutType = when {
+            !showBar -> NavigationSuiteType.None
+            LocalConfiguration.current.screenWidthDp >= 600 -> NavigationSuiteType.NavigationRail
+            else -> NavigationSuiteType.NavigationBar
+        },
+    ) {
+        val open = { route: Any -> nav.navigate(route) }
+        NavHost(nav, startDestination = HomeRoute) {
+            composable<HomeRoute> {
+                HomeScreen(onOpen = open, onSettings = { nav.navigate(SettingsRoute) })
+            }
             composable<LibraryRoute> {
                 LibraryScreen(
                     onCategory = { nav.navigate(it) },
                     onBook = { nav.navigate(BookRoute(it)) },
-                    onSettings = { nav.navigate(SettingsRoute) },
+                    onOpen = open,
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -106,10 +118,7 @@ private fun AppNav() {
                 BookScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
             }
             composable<ReaderRoute> {
-                ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) })
-            }
-            composable<SearchRoute> {
-                SearchScreen(onOpen = { nav.navigate(it) })
+                ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) }, onTrail = nav::backAlongTrail)
             }
             composable<SavedRoute> {
                 SavedScreen(onOpen = { nav.navigate(it) })
@@ -125,4 +134,21 @@ private fun NavHostController.switchTab(route: Any) = navigate(route) {
     popUpTo(graph.findStartDestination().id) { saveState = true }
     launchSingleTop = true
     restoreState = true
+}
+
+/**
+ * Returns to step [i] of the current reader's trail. When the readers of the trail are the
+ * entries right below this one (the usual case), pops back to keep their scroll positions;
+ * otherwise (e.g. a trail resumed from history) opens the step anew.
+ */
+private fun NavHostController.backAlongTrail(i: Int) {
+    val stack = currentBackStack.value
+    val current = stack.lastOrNull()?.toRoute<ReaderRoute>() ?: return
+    val count = current.trail.size - i
+    val target = stack.getOrNull(stack.size - 1 - count)
+    val step = TrailStep.decode(current.trail[i]) ?: return
+    val matches = target?.destination?.hasRoute(ReaderRoute::class) == true &&
+        target.toRoute<ReaderRoute>().let { it.book == step.book && it.trail == current.trail.take(i) }
+    if (matches) repeat(count) { popBackStack() }
+    else navigate(ReaderRoute(step.book, step.ref, highlight = true, trail = current.trail.take(i)))
 }

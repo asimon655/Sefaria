@@ -25,10 +25,15 @@ data class BookRoute(val title: String)
  * bookmarks) but not a restored reading position.
  */
 @Serializable
-data class ReaderRoute(val book: String, val ref: String, val highlight: Boolean = true)
+data class ReaderRoute(
+    val book: String,
+    val ref: String,
+    val highlight: Boolean = true,
+    val trail: List<String> = emptyList(), // encoded TrailSteps (core/Trail.kt) that led here
+)
 
 @Serializable
-data object SearchRoute
+data object HomeRoute
 
 @Serializable
 data object SavedRoute

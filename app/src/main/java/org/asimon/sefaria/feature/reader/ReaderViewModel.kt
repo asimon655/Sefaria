@@ -105,6 +105,8 @@ class ReaderViewModel @Inject constructor(
     private val settings: Settings,
 ) : ViewModel() {
     private val route = handle.toRoute<ReaderRoute>()
+    /** The source trail that led here (encoded steps, oldest first). */
+    val trail: List<String> = route.trail
     val prefs: StateFlow<Prefs> = settings.prefs
 
     private val _state = MutableStateFlow(ReaderState(bookTitle = route.book))
@@ -129,7 +131,7 @@ class ReaderViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            position.filterNotNull().debounce(800).collect { user.recordPosition(it) }
+            position.filterNotNull().debounce(800).collect { user.recordPosition(it, trail) }
         }
     }
 

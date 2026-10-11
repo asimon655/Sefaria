@@ -1,5 +1,6 @@
 package org.asimon.sefaria.data.local
 
+import androidx.room.AutoMigration
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -44,6 +45,8 @@ data class HistoryEntry(
     val label: String,
     @ColumnInfo(name = "he_label") val heLabel: String,
     @ColumnInfo(name = "visited_at") val visitedAt: Long,
+    /** The source trail that led here (see core/Trail.kt), "" if none. */
+    @ColumnInfo(defaultValue = "") val trail: String = "",
 )
 
 @Entity(tableName = "reading_position")
@@ -106,6 +109,10 @@ interface UserDao {
     @Query("DELETE FROM history")
     suspend fun clearHistory()
 
+    /** The latest visit of each book, most recent first (Home's "continue reading"). */
+    @Query("SELECT * FROM history h WHERE visited_at = (SELECT MAX(visited_at) FROM history WHERE book = h.book) ORDER BY visited_at DESC LIMIT :limit")
+    fun recentBooks(limit: Int): Flow<List<HistoryEntry>>
+
     @Query("SELECT * FROM reading_position WHERE book = :book")
     suspend fun position(book: String): ReadingPosition?
 
@@ -118,7 +125,8 @@ interface UserDao {
 
 @Database(
     entities = [CacheEntry::class, Bookmark::class, HistoryEntry::class, ReadingPosition::class],
-    version = 1,
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)], // history.trail
 )
 abstract class SefariaDb : RoomDatabase() {
     abstract fun cache(): CacheDao

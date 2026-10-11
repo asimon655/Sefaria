@@ -5,6 +5,7 @@ import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.ui.components.other
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.prose
+import org.asimon.sefaria.feature.search.SearchBox
 import org.asimon.sefaria.data.repo.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
@@ -90,7 +91,7 @@ class LibraryViewModel @Inject constructor(
 fun LibraryScreen(
     onCategory: (LibraryRoute) -> Unit,
     onBook: (String) -> Unit,
-    onSettings: () -> Unit,
+    onOpen: (Any) -> Unit, // a search result
     onBack: () -> Unit,
     vm: LibraryViewModel = hiltViewModel(),
 ) {
@@ -100,9 +101,6 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text(s.title?.let { pick(it.en, it.he) } ?: stringResource(R.string.tab_library), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { if (s.route.names.isNotEmpty()) BackButton(onBack) },
-                actions = {
-                    IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings)) }
-                },
             )
         },
     ) { padding ->
@@ -113,6 +111,9 @@ fun LibraryScreen(
             else -> {
               val desc = s.title?.let { t -> prose(t.desc.en, t.desc.he).ifEmpty { prose(t.short.en, t.short.he) } }.orEmpty()
               LazyColumn(contentPadding = padding) {
+                if (s.route.names.isEmpty()) item(key = "search") {
+                    SearchBox(onOpen, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
                 if (desc.isNotEmpty()) {
                     item {
                         Text(

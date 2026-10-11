@@ -2,6 +2,12 @@
     <string name="app_name">Sefaria</string>
 
     <!-- navigation -->
+    <string name="tab_home">Home</string>
+    <string name="home_empty">Books you read will appear here. Search above, or browse the Library.</string>
+    <string name="recent_books">Recently read</string>
+    <string name="trail">Source trail</string>
+    <string name="close_connections">Close connections</string>
+    <string name="resize_connections">Drag to resize</string>
     <string name="tab_library">Library</string>
     <string name="tab_search">Search</string>
     <string name="tab_saved">Saved</string>

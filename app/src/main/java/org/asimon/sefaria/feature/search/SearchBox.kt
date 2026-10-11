@@ -15,14 +15,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -81,35 +78,39 @@ class SearchViewModel @Inject constructor(private val library: LibraryRepository
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The search field with its result (Home and Library). v1 jumps to a ref or a book; full-text
+ * results arrive in Phase 6.
+ */
 @Composable
-fun SearchScreen(onOpen: (Any) -> Unit, vm: SearchViewModel = hiltViewModel()) {
+fun SearchBox(onOpen: (Any) -> Unit, modifier: Modifier = Modifier, vm: SearchViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val open = { r: ResolveDto -> onOpen(if (r.kind == "book") BookRoute(r.book) else ReaderRoute(r.book, r.ref)) }
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_search)) }) }) { padding ->
-        Column(Modifier.padding(padding).padding(16.dp)) {
-            OutlinedTextField(
-                value = s.query,
-                onValueChange = vm::onQuery,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                placeholder = { Text(stringResource(R.string.search_hint)) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { s.result?.let(open) }),
+    Column(modifier) {
+        OutlinedTextField(
+            value = s.query,
+            onValueChange = vm::onQuery,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            placeholder = { Text(stringResource(R.string.search_hint)) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { s.result?.let(open) }),
+        )
+        if (s.query.isNotBlank()) s.result?.let { r ->
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.go_to, pick(r.human.ifEmpty { r.ref }, r.heRef))) },
+                supportingContent = other(r.human.ifEmpty { r.ref }, r.heRef).takeIf { it.isNotEmpty() }?.let { o ->
+                    { Text(o, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content)) }
+                },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
+                modifier = Modifier.clickable { open(r) },
             )
-            s.result?.let { r ->
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.go_to, pick(r.human.ifEmpty { r.ref }, r.heRef))) },
-                    supportingContent = { Text(other(r.human.ifEmpty { r.ref }, r.heRef), style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content)) },
-                    trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
-                    modifier = Modifier.clickable { open(r) },
-                )
-            }
-            s.error?.let { e ->
-                val msg = if (e is AppError.NotFound) stringResource(R.string.no_match, s.errorQuery) else e.text()
-                Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
-            }
+        }
+        if (s.query.isNotBlank()) s.error?.let { e ->
+            val msg = if (e is AppError.NotFound) stringResource(R.string.no_match, s.errorQuery) else e.text()
+            Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp))
         }
     }
 }

@@ -2,6 +2,12 @@
     <string name="app_name">ספריא</string>
 
     <!-- navigation -->
+    <string name="tab_home">בית</string>
+    <string name="home_empty">ספרים שתקראו יופיעו כאן. אפשר לחפש למעלה או לעיין בספרייה.</string>
+    <string name="recent_books">נקראו לאחרונה</string>
+    <string name="trail">מסלול המקורות</string>
+    <string name="close_connections">סגירת הקישורים</string>
+    <string name="resize_connections">גררו לשינוי הגודל</string>
     <string name="tab_library">ספרייה</string>
     <string name="tab_search">חיפוש</string>
     <string name="tab_saved">שמורים</string>
@@ -44,7 +50,7 @@
     <string name="theme_dark">כהה</string>
 
     <!-- search -->
-    <string name="search_hint">בראשית א · ברכות ב. · Genesis 1:1</string>
+    <string name="search_hint">בראשית א · ברכות ב. · שולחן ערוך</string>
     <string name="go_to">מעבר אל %1$s</string>
     <string name="no_match">לא נמצא ספר או מקום שמתאים ל„%1$s”</string>
 

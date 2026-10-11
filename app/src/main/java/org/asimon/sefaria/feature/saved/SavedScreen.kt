@@ -40,6 +40,9 @@ import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.repo.UserDataRepository
 import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.core.TrailStep
+import org.asimon.sefaria.feature.home.resume
+import org.asimon.sefaria.feature.home.trailText
 import org.asimon.sefaria.feature.downloads.DownloadsList
 import org.asimon.sefaria.feature.downloads.DownloadsViewModel
 import java.text.DateFormat
@@ -102,8 +105,19 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
                 } else items(history, key = { it.id }) { h ->
                     ListItem(
                         headlineContent = { Text(pick(h.label, h.heLabel)) },
-                        supportingContent = { Text(date.format(Date(h.visitedAt))) },
-                        modifier = Modifier.clickable { onOpen(ReaderRoute(h.book, h.ref, highlight = false)) },
+                        supportingContent = {
+                            val trail = TrailStep.decodeAll(TrailStep.split(h.trail))
+                            Column {
+                                if (trail.isNotEmpty()) Text(
+                                    trailText(trail.map { pick(it.en, it.he) }),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(date.format(Date(h.visitedAt)))
+                            }
+                        },
+                        modifier = Modifier.clickable { onOpen(resume(h)) },
                     )
                     HorizontalDivider()
                 }
