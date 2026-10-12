@@ -1,0 +1,15 @@
+# Shared vectors for search.Normalize (Go) and the app's Kotlin port.
+# input<TAB>normalised. Blank lines and lines starting with # are skipped.
+בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים	בראשית ברא אלהימ
+אֶל־הָאָֽרֶץ׃	אל הארצ
+<big>ב</big>ראשית	בראשית
+רש"י ורמב״ן	רשי ורמבנ
+תרי׳׳ג	תריג
+In the Beginning, God created—the heavens.	in the beginning god created the heavens
+don't “quote” me	dont quote me
+line<br>break	line break
+verse<sup class="footnote-marker">1</sup><i class="footnote">A note.</i>	verse 1 a note
+&nbsp;a&amp;b&thinsp;	a b
+Café ÉTUDE	café étude
+Genesis 1:1, 2:3	genesis 1 1 2 3
+ ךםןףץ 	כמנפצ

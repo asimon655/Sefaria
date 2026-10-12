@@ -1,5 +1,18 @@
 package org.asimon.sefaria.feature.book
 
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.material3.IconButton
+import org.asimon.sefaria.SearchRoute
 import org.asimon.sefaria.ui.components.screenAlign
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.ui.components.other
@@ -111,7 +124,7 @@ class BookViewModel @Inject constructor(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookScreen(
-    onOpen: (ReaderRoute) -> Unit,
+    onOpen: (Any) -> Unit,
     onBack: () -> Unit,
     vm: BookViewModel = hiltViewModel(),
     dvm: DownloadsViewModel = hiltViewModel(),
@@ -119,11 +132,38 @@ fun BookScreen(
     val s by vm.state.collectAsStateWithLifecycle()
     val position by vm.position.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(s.book?.let { pick(it.title, it.he) } ?: if (hebrewUi()) "" else vm.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { BackButton(onBack) },
+                title = {
+                    if (searching) {
+                        val focus = remember { FocusRequester() }
+                        LaunchedEffect(Unit) { focus.requestFocus() }
+                        TextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                            singleLine = true,
+                            placeholder = { Text(stringResource(R.string.search_in_book)) },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { if (query.isNotBlank()) onOpen(SearchRoute(query.trim(), vm.title)) }),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                        )
+                    } else {
+                        Text(s.book?.let { pick(it.title, it.he) } ?: if (hebrewUi()) "" else vm.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
+                navigationIcon = { BackButton { if (searching) searching = false else onBack() } },
+                actions = {
+                    if (!searching) IconButton(onClick = { searching = true }) {
+                        Icon(Icons.Outlined.Search, contentDescription = stringResource(R.string.search_in_book))
+                    }
+                },
             )
         },
     ) { padding ->

@@ -67,6 +67,8 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setTheme(t: ThemeMode) = viewModelScope.launch { settings.setTheme(t) }
+    fun setDiaspora(v: Boolean) = viewModelScope.launch { settings.setDiaspora(v) }
+    fun setSephardi(v: Boolean) = viewModelScope.launch { settings.setSephardi(v) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,6 +109,11 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
             Text(stringResource(R.string.theme), style = MaterialTheme.typography.titleSmall)
             ThemePicker(prefs.theme, vm::setTheme)
             HorizontalDivider()
+            Text(stringResource(R.string.today_learning), style = MaterialTheme.typography.titleSmall)
+            Choice(listOf(stringResource(R.string.israel), stringResource(R.string.diaspora)), if (prefs.diaspora) 1 else 0) { vm.setDiaspora(it == 1) }
+            Text(stringResource(R.string.haftarah_custom), style = MaterialTheme.typography.bodyMedium)
+            Choice(listOf(stringResource(R.string.ashkenazi), stringResource(R.string.sephardi)), if (prefs.sephardi) 1 else 0) { vm.setSephardi(it == 1) }
+            HorizontalDivider()
             Text(stringResource(R.string.server), style = MaterialTheme.typography.titleSmall)
             OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.server_url)) })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -124,6 +131,17 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
                 stringResource(R.string.about_text, BuildConfig.VERSION_NAME),
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun Choice(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        labels.forEachIndexed { i, l ->
+            SegmentedButton(selected = i == selected, onClick = { onSelect(i) }, shape = SegmentedButtonDefaults.itemShape(i, labels.size)) {
+                Text(l, maxLines = 1)
+            }
         }
     }
 }

@@ -17,6 +17,9 @@ import java.util.zip.InflaterInputStream
 /** A downloaded book. */
 data class InstalledPack(val book: String, val he: String, val build: String, val bytes: Long)
 
+/** A full-text match in a downloaded book: [section] and [i] locate its text in the stored section response. */
+data class PackHit(val book: String, val slot: Int, val ref: String, val human: String, val heRef: String, val section: String, val i: Int)
+
 /** Server responses stored in downloaded books, by book title and cache key; null if absent. */
 fun interface PackSource {
     suspend fun get(book: String, key: String): String?
@@ -54,6 +57,31 @@ class PackStore(private val dir: File, private val driver: BundledSQLiteDriver =
         c.prepare("SELECT z FROM response WHERE key = ?").use { st ->
             st.bindText(1, key)
             if (st.step()) InflaterInputStream(st.getBlob(0).inputStream()).readBytes().decodeToString() else null
+        }
+    }
+
+    /**
+     * Full-text search in [book]'s pack: up to [limit] hits after slot [after] in reading order,
+     * for an FTS5 [expr] (SearchText.expr) over [lang]'s table. Empty if the book is not
+     * downloaded or its pack predates search.
+     */
+    suspend fun search(book: String, lang: String, expr: String, after: Int, limit: Int): List<PackHit> = locked {
+        require(lang == "he" || lang == "en")
+        val c = open[book] ?: return@locked emptyList()
+        try {
+            c.prepare(
+                "SELECT s.slot, s.ref, s.human, s.he_ref, s.section, s.i FROM $lang JOIN seg s ON s.slot = $lang.rowid " +
+                    "WHERE $lang MATCH ? AND $lang.rowid > ? ORDER BY $lang.rowid LIMIT ?"
+            ).use { st ->
+                st.bindText(1, expr)
+                st.bindLong(2, after.toLong())
+                st.bindLong(3, limit.toLong())
+                buildList {
+                    while (st.step()) add(PackHit(book, st.getInt(0), st.getText(1), st.getText(2), st.getText(3), st.getText(4), st.getInt(5)))
+                }
+            }
+        } catch (_: Exception) { // a pack built before search has no index
+            emptyList()
         }
     }
 

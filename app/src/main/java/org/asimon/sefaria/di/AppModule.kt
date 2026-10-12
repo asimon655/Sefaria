@@ -24,6 +24,8 @@ import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.data.repo.LinksRepository
 import org.asimon.sefaria.data.repo.PackDownloader
 import org.asimon.sefaria.data.repo.PackRepository
+import org.asimon.sefaria.data.repo.CalendarRepository
+import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.data.repo.TextRepository
 import org.asimon.sefaria.data.repo.UserDataRepository
 import java.io.File
@@ -79,6 +81,12 @@ object AppModule {
 
     @Provides @Singleton
     fun links(api: Api, fetcher: CachedFetcher) = LinksRepository(api, fetcher)
+
+    @Provides @Singleton
+    fun search(api: Api, library: LibraryRepository, packs: PackStore) = SearchRepository(api, library, packs)
+
+    @Provides @Singleton
+    fun calendar(api: Api, fetcher: CachedFetcher) = CalendarRepository(api, fetcher)
 
     @Provides @Singleton
     fun userData(db: SefariaDb) = UserDataRepository(db.user())

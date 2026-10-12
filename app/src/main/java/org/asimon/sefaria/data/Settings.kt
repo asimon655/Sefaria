@@ -33,6 +33,8 @@ data class Prefs(
     /** Commentators whose text shows directly in the connections panel, in pin order (collective titles). */
     val pinned: List<String> = emptyList(),
     val onboarded: Boolean = true, // until the store is read; then the stored value
+    val diaspora: Boolean = defaultDiaspora(),
+    val sephardi: Boolean = false, // haftarah custom for Today
 )
 
 /** User preferences (DataStore). [prefs] is hot so composables and view models read it synchronously. */
@@ -49,6 +51,8 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
         val snapToVerse = booleanPreferencesKey("snap_to_verse")
         val pinned = stringPreferencesKey("pinned") // titles joined by '\n'
         val onboarded = booleanPreferencesKey("onboarded")
+        val diaspora = booleanPreferencesKey("diaspora")
+        val sephardi = booleanPreferencesKey("sephardi")
     }
 
     val prefs: StateFlow<Prefs> = store.data.map { p ->
@@ -64,6 +68,8 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
             snapToVerse = p[K.snapToVerse] ?: true,
             pinned = p[K.pinned]?.split('\n')?.filter { it.isNotEmpty() }.orEmpty(),
             onboarded = p[K.onboarded] ?: false,
+            diaspora = p[K.diaspora] ?: defaultDiaspora(),
+            sephardi = p[K.sephardi] ?: false,
         )
     }.stateIn(scope, SharingStarted.Eagerly, Prefs(defaultUrl))
 
@@ -82,6 +88,8 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
     suspend fun setKeepScreenOn(v: Boolean) = store.edit { it[K.keepScreenOn] = v }
     suspend fun setSnapToVerse(v: Boolean) = store.edit { it[K.snapToVerse] = v }
     suspend fun setOnboarded() = store.edit { it[K.onboarded] = true }
+    suspend fun setDiaspora(v: Boolean) = store.edit { it[K.diaspora] = v }
+    suspend fun setSephardi(v: Boolean) = store.edit { it[K.sephardi] = v }
 
     /** Pins or unpins a commentator (by collective title). */
     suspend fun togglePin(key: String) = store.edit { p ->
@@ -89,3 +97,6 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
         p[K.pinned] = (if (key in cur) cur - key else cur + key).joinToString("\n")
     }
 }
+
+/** Israel's calendar when the device's region is Israel, else the diaspora's. */
+fun defaultDiaspora() = java.util.Locale.getDefault().country != "IL"

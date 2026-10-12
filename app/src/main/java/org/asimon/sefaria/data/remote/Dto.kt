@@ -170,6 +170,68 @@ data class ResolveDto(
 )
 
 @Serializable
+data class CompleteDto(val items: List<CompletionDto> = emptyList())
+
+/** [kind] is "ref" (the query parsed as a ref) or "book". */
+@Serializable
+data class CompletionDto(
+    val kind: String,
+    val ref: String,
+    val title: String = "",
+    val he: String = "",
+    val book: String = "",
+)
+
+@Serializable
+data class SearchDto(val lang: String = "", val hits: List<SearchHitDto> = emptyList(), val next: String? = null)
+
+/** [snippet] is plain text with the matching words in <b>. */
+@Serializable
+data class SearchHitDto(
+    val ref: String,
+    val human: String = "",
+    @SerialName("he_ref") val heRef: String = "",
+    val book: String = "",
+    val snippet: String = "",
+)
+
+/** One day of learning schedules (SERVER_SPEC §6.7). */
+@Serializable
+data class CalendarDto(
+    val date: String = "",
+    val diaspora: Boolean = true,
+    val custom: String = "",
+    val items: List<CalendarItemDto> = emptyList(),
+)
+
+@Serializable
+data class CalendarRefDto(
+    val ref: String,
+    val human: String = "",
+    @SerialName("he_ref") val heRef: String = "",
+    val book: String = "",
+)
+
+/**
+ * A schedule's learning: [ref] is the first of [refs] (empty when there is one). [date] is set when
+ * the item belongs to another day of the week (the coming Shabbat's parasha); [note] names a special Shabbat.
+ */
+@Serializable
+data class CalendarItemDto(
+    val id: String,
+    val title: Bilingual = Bilingual(),
+    val display: Bilingual = Bilingual(),
+    val date: String? = null,
+    val note: Bilingual? = null,
+    val ref: String,
+    val human: String = "",
+    @SerialName("he_ref") val heRef: String = "",
+    val book: String = "",
+    val refs: List<CalendarRefDto> = emptyList(),
+    val aliyot: List<CalendarRefDto> = emptyList(),
+)
+
+@Serializable
 data class ErrorDto(val error: ErrorBody) {
     @Serializable
     data class ErrorBody(val code: String = "", val message: String = "", val suggestions: List<String> = emptyList())

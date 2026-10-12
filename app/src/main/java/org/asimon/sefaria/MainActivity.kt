@@ -53,6 +53,7 @@ import org.asimon.sefaria.feature.book.BookScreen
 import org.asimon.sefaria.feature.library.LibraryScreen
 import org.asimon.sefaria.feature.reader.ReaderScreen
 import org.asimon.sefaria.feature.saved.SavedScreen
+import org.asimon.sefaria.feature.search.SearchScreen
 import org.asimon.sefaria.feature.settings.SettingsScreen
 import org.asimon.sefaria.ui.theme.SefariaTheme
 import javax.inject.Inject
@@ -142,6 +143,9 @@ private fun AppNav() {
             }
             composable<ReaderRoute> {
                 ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) }, onTrail = nav::backAlongTrail)
+            }
+            composable<SearchRoute> {
+                SearchScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
             }
             composable<SavedRoute> {
                 SavedScreen(onOpen = { nav.navigate(it) })

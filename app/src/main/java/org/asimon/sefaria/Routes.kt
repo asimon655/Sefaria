@@ -32,6 +32,10 @@ data class ReaderRoute(
     val trail: List<String> = emptyList(), // encoded TrailSteps (core/Trail.kt) that led here
 )
 
+/** Full-text results for [q], optionally within [book]. */
+@Serializable
+data class SearchRoute(val q: String, val book: String? = null)
+
 @Serializable
 data object HomeRoute
 

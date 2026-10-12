@@ -40,25 +40,32 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.BookRoute
 import org.asimon.sefaria.ReaderRoute
-import org.asimon.sefaria.data.remote.ResolveDto
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.SearchRoute
+import org.asimon.sefaria.data.remote.CompletionDto
+import org.asimon.sefaria.data.repo.SearchRepository
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import org.asimon.sefaria.data.repo.Load
 import javax.inject.Inject
 
-/** [error] belongs to [errorQuery], which may lag behind [query] while typing. */
-data class SearchState(val query: String = "", val result: ResolveDto? = null, val error: AppError? = null, val errorQuery: String = "")
+/** [items] and [error] belong to [shownQuery], which may lag behind [query] while typing. */
+data class SearchState(
+    val query: String = "",
+    val items: List<CompletionDto> = emptyList(),
+    val error: AppError? = null,
+    val shownQuery: String = "",
+)
 
-/** v1 search is a ref/title jump via /v1/resolve; full-text search arrives in Phase 6. */
+/** Completions for the search field: the query as a ref, then books by title (/v1/complete). */
 @OptIn(FlowPreview::class)
 @HiltViewModel
-class SearchViewModel @Inject constructor(private val library: LibraryRepository) : ViewModel() {
+class SearchViewModel @Inject constructor(private val search: SearchRepository) : ViewModel() {
     private val _state = MutableStateFlow(SearchState())
     val state = _state.asStateFlow()
     private val queries = MutableStateFlow("")
 
     init {
         viewModelScope.launch {
-            queries.debounce(300).collectLatest { q -> resolve(q) }
+            queries.debounce(250).collectLatest { q -> complete(q.trim()) }
         }
     }
 
@@ -67,25 +74,27 @@ class SearchViewModel @Inject constructor(private val library: LibraryRepository
         queries.value = q
     }
 
-    private suspend fun resolve(q: String) {
-        if (q.isBlank()) return _state.update { it.copy(result = null, error = null) }
+    private suspend fun complete(q: String) {
+        if (q.isEmpty()) return _state.update { it.copy(items = emptyList(), error = null, shownQuery = "") }
         _state.update {
-            when (val r = library.resolve(q.trim())) {
-                is Load.Ok -> it.copy(result = r.value, error = null)
-                is Load.Err -> it.copy(result = null, error = r.error, errorQuery = q.trim())
+            when (val r = search.complete(q)) {
+                is Load.Ok -> it.copy(items = r.value, error = null, shownQuery = q)
+                is Load.Err -> it.copy(items = emptyList(), error = r.error, shownQuery = q)
             }
         }
     }
 }
 
 /**
- * The search field with its result (Home and Library). v1 jumps to a ref or a book; full-text
- * results arrive in Phase 6.
+ * The search field (Home and Library): a ref the query parses as, matching books, and a row
+ * that searches the texts. Go opens the ref if there is one, else the full-text results.
  */
 @Composable
 fun SearchBox(onOpen: (Any) -> Unit, modifier: Modifier = Modifier, vm: SearchViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
-    val open = { r: ResolveDto -> onOpen(if (r.kind == "book") BookRoute(r.book) else ReaderRoute(r.book, r.ref)) }
+    val q = s.query.trim()
+    val open = { c: CompletionDto -> onOpen(if (c.kind == "book") BookRoute(c.book) else ReaderRoute(c.book, c.ref)) }
+    val fullText = { onOpen(SearchRoute(q)) }
     Column(modifier) {
         OutlinedTextField(
             value = s.query,
@@ -95,22 +104,33 @@ fun SearchBox(onOpen: (Any) -> Unit, modifier: Modifier = Modifier, vm: SearchVi
             shape = MaterialTheme.shapes.extraLarge,
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             placeholder = { Text(stringResource(R.string.search_hint)) },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { s.result?.let(open) }),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = {
+                val ref = s.items.firstOrNull()?.takeIf { it.kind == "ref" && s.shownQuery == q }
+                if (ref != null) open(ref) else if (q.isNotEmpty()) fullText()
+            }),
         )
-        if (s.query.isNotBlank()) s.result?.let { r ->
+        if (q.isEmpty()) return@Column
+        if (s.shownQuery == q) for (c in s.items) {
+            val title = pick(c.title, c.he)
             ListItem(
-                headlineContent = { Text(stringResource(R.string.go_to, pick(r.human.ifEmpty { r.ref }, r.heRef))) },
-                supportingContent = other(r.human.ifEmpty { r.ref }, r.heRef).takeIf { it.isNotEmpty() }?.let { o ->
+                headlineContent = { Text(if (c.kind == "ref") stringResource(R.string.go_to, title) else title) },
+                supportingContent = other(c.title, c.he).takeIf { it.isNotEmpty() }?.let { o ->
                     { Text(o, style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content)) }
                 },
-                trailingContent = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null) },
-                modifier = Modifier.clickable { open(r) },
+                leadingContent = {
+                    Icon(if (c.kind == "ref") Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null)
+                },
+                modifier = Modifier.clickable { open(c) },
             )
         }
-        if (s.query.isNotBlank()) s.error?.let { e ->
-            val msg = if (e is AppError.NotFound) stringResource(R.string.no_match, s.errorQuery) else e.text()
-            Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp))
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.search_texts, q)) },
+            leadingContent = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            modifier = Modifier.clickable(onClick = fullText),
+        )
+        if (s.shownQuery == q && s.error != null && s.error !is AppError.Network) {
+            Text(s.error!!.text(), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp))
         }
     }
 }

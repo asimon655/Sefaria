@@ -53,6 +53,13 @@
     <string name="search_hint">בראשית א · ברכות ב. · שולחן ערוך</string>
     <string name="go_to">מעבר אל %1$s</string>
     <string name="no_match">לא נמצא ספר או מקום שמתאים ל„%1$s”</string>
+    <string name="search_texts">חיפוש „%1$s” בטקסטים</string>
+    <string name="search_in_book">חיפוש בספר</string>
+    <string name="search_all">הכול</string>
+    <string name="search_none">לא נמצאו טקסטים שמתאימים ל„%1$s”</string>
+    <string name="search_offline">אין חיבור: מחפש רק בספרים שהורדו</string>
+    <string name="search_lang_he">עברית</string>
+    <string name="search_lang_en">אנגלית</string>
 
     <!-- saved -->
     <string name="bookmarks">סימניות</string>
@@ -114,4 +121,10 @@
     <string name="selected_count">%1$d נבחרו</string>
     <string name="get_started">בואו נתחיל</string>
     <string name="snap_to_verse">הצמדה לפסוק כשהקישורים פתוחים</string>
+    <string name="today_learning">הלימוד היומי</string>
+    <string name="israel">ארץ ישראל</string>
+    <string name="diaspora">חוץ לארץ</string>
+    <string name="haftarah_custom">הפטרה</string>
+    <string name="ashkenazi">אשכנז</string>
+    <string name="sephardi">ספרד</string>
 </resources>

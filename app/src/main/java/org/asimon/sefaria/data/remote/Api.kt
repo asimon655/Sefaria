@@ -65,6 +65,27 @@ class Api(
 
     suspend fun resolve(q: String) = get("/v1/resolve", ResolveDto.serializer(), query = mapOf("q" to q))
 
+    /** The query as a ref, then books by title (SERVER_SPEC §6.6). */
+    suspend fun complete(q: String, limit: Int = 6) =
+        get("/v1/complete", CompleteDto.serializer(), query = mapOf("q" to q, "limit" to limit.toString()))
+
+    /** One page of full-text hits in reading order; pass the previous page's [SearchDto.next] as [cursor]. */
+    suspend fun search(q: String, filter: SearchFilter = SearchFilter(), cursor: String? = null, limit: Int = 20) =
+        get("/v1/search", SearchDto.serializer(), query = buildMap {
+            put("q", q)
+            put("limit", limit.toString())
+            filter.lang?.let { put("lang", it) }
+            filter.book?.let { put("book", it) }
+            filter.category?.let { put("category", it) }
+            cursor?.let { put("cursor", it) }
+        })
+
+    /** The day's learning; [date] is the reader's local date (YYYY-MM-DD). */
+    suspend fun calendar(date: String, diaspora: Boolean, custom: String, etag: String? = null) =
+        get("/v1/calendar", CalendarDto.serializer(), etag, query = mapOf(
+            "date" to date, "diaspora" to if (diaspora) "1" else "0", "custom" to custom,
+        ))
+
     private suspend fun <T> get(
         path: String,
         serializer: KSerializer<T>,
@@ -106,6 +127,9 @@ class Api(
     /** A ref or title as one path segment; okhttp escapes it when the URL is parsed. */
     private fun segment(s: String) = s.replace(' ', '_').replace("/", "%2F").replace("?", "%3F").replace("#", "%23")
 }
+
+/** Full-text search filters; null means any. [category] is a path of English names joined by "/". */
+data class SearchFilter(val lang: String? = null, val book: String? = null, val category: String? = null)
 
 /** Version ids per language; null means the book's default version. */
 data class VersionSelection(val he: Int? = null, val en: Int? = null) {

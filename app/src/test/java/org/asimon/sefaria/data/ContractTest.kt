@@ -6,6 +6,7 @@ import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.core.ref.nextSection
 import org.asimon.sefaria.core.ref.prevSection
 import org.asimon.sefaria.data.remote.BookDto
+import org.asimon.sefaria.data.remote.CalendarDto
 import org.asimon.sefaria.data.remote.ErrorDto
 import org.asimon.sefaria.data.remote.ManifestDto
 import org.asimon.sefaria.data.remote.ResolveDto
@@ -30,6 +31,18 @@ class ContractTest {
         assertEquals("ref_not_found", SefariaJson.decodeFromString<ErrorDto>(fixture("error_ref_not_found.json")).error.code)
         val r = SefariaJson.decodeFromString<ResolveDto>(fixture("resolve_Ber_2a_5.json"))
         assertEquals("Berakhot.2a.5" to "segment", r.ref to r.kind)
+        val cal = SefariaJson.decodeFromString<CalendarDto>(fixture("calendar_2026-12-05.json"))
+        val parasha = cal.items.first()
+        assertEquals("parashat_hashavua", parasha.id)
+        assertEquals("Vayeshev" to "וישב", parasha.display.en to parasha.display.he)
+        assertEquals("Genesis", parasha.book)
+        assertEquals(8, parasha.aliyot.size)
+        assertEquals("שבת חנוכה - יום א", parasha.note?.he)
+        assertEquals("haftarah", cal.items[1].id)
+        // every item opens: its ref parses as one of the catalog's books where we have them
+        val inGenesis = cal.items.filter { it.book == "Genesis" }
+        assertTrue(inGenesis.isNotEmpty())
+        for (it in inGenesis) assertEquals(it.ref, Ref.parse(catalog, it.ref).url())
 
         val gen = catalog.bookByTitle("Genesis")!!
         assertEquals(1533, gen.slots)
