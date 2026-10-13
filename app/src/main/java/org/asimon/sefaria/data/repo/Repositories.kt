@@ -7,12 +7,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.core.ref.Book
+import org.asimon.sefaria.core.ref.Catalog
 import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.data.local.Bookmark
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.local.HistoryEntry
-import org.asimon.sefaria.data.local.PackSource
+import org.asimon.sefaria.data.local.OfflineSource
 import org.asimon.sefaria.data.local.ReadingPosition
 import org.asimon.sefaria.data.local.UserDao
 import org.asimon.sefaria.data.remote.Api
@@ -60,7 +61,7 @@ class BuildInfo {
 }
 
 /**
- * Pack-first, then cache-first reads. A response stored in a downloaded book's pack is used
+ * Library-first, then cache-first reads. A response the downloaded library holds is used
  * as is (pass [get]'s book). A cached response from the current build is used as is; one from an
  * older build is revalidated with If-None-Match (a 304 costs a few bytes); if the network
  * fails, the cached copy is still served. Responses are pure functions of
@@ -70,7 +71,7 @@ class CachedFetcher(
     private val api: Api,
     private val cache: CacheDao,
     private val buildInfo: BuildInfo,
-    private val packs: PackSource = PackSource { _, _ -> null },
+    private val offline: OfflineSource = OfflineSource { _, _ -> null },
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     val build get() = buildInfo.current
@@ -90,7 +91,7 @@ class CachedFetcher(
         book: String? = null, // the book the response belongs to, if it may be downloaded
         fetch: suspend (etag: String?) -> ApiResult<T>,
     ): Load<T> {
-        if (book != null) packs.get(book, key)?.let { return Load.Ok(decode(it)) }
+        if (book != null) offline.get(book, key)?.let { return Load.Ok(decode(it)) }
         val cached = cache.get(key)
         val current = buildInfo.current
         if (cached != null && (current == null || cached.etag?.trim('"') == current)) {
@@ -164,9 +165,10 @@ data class SectionText(
     val size get() = maxOf(he.size, en.size)
 }
 
-class TextRepository(private val api: Api, private val fetcher: CachedFetcher) {
-    /** Loads exactly one section (the paging unit). */
+class TextRepository(private val api: Api, private val fetcher: CachedFetcher, private val offline: OfflineLibrary? = null) {
+    /** Loads exactly one section (the paging unit); a downloaded book's default versions come from the library. */
     suspend fun section(section: Ref, versions: VersionSelection = VersionSelection()): Load<SectionText> {
+        if (versions.he == null && versions.en == null) offline?.section(section)?.let { return Load.Ok(it) }
         val ref = section.url()
         return fetcher.get("text:$ref|${versions.key}", ::decode, book = section.book.title) { etag -> api.text(ref, versions, etag) }
             .map { t ->
@@ -179,15 +181,34 @@ class TextRepository(private val api: Api, private val fetcher: CachedFetcher) {
         withContext(Dispatchers.Default) { SefariaJson.decodeFromString(TextDto.serializer(), json) }
 }
 
-/** Connections (Phase 4). Cached like texts, so connections of read segments work offline. */
-class LinksRepository(private val api: Api, private val fetcher: CachedFetcher) {
-    /** All connections of a segment of [book], grouped, without text. */
-    suspend fun links(ref: String, book: String): Load<LinksDto> =
-        fetcher.get("links:$ref", ::decode, book = book) { etag -> api.links(ref, etag = etag) }
+/**
+ * Connections (Phase 4). The downloaded links file answers first; otherwise they are cached
+ * like texts, so connections of read segments work offline.
+ */
+class LinksRepository(
+    private val api: Api,
+    private val fetcher: CachedFetcher,
+    private val offline: OfflineLibrary? = null,
+    private val library: LibraryRepository? = null,
+) {
+    /** All connections of a segment of [source], grouped, without text. */
+    suspend fun links(ref: String, source: String): Load<LinksDto> {
+        local(ref, source) { offline?.links(it) }?.let { return Load.Ok(it) }
+        return fetcher.get("links:$ref", ::decode) { etag -> api.links(ref, etag = etag) }
+    }
 
-    /** One book's connections of a segment, with their text. */
-    suspend fun withText(ref: String, book: String): Load<LinksDto> =
-        fetcher.get("links:$ref|$book", ::decode) { etag -> api.links(ref, withText = true, book = book, etag = etag) }
+    /** [book]'s connections of a segment of [source], with their text. */
+    suspend fun withText(ref: String, source: String, book: String): Load<LinksDto> {
+        local(ref, source) { offline?.links(it, only = book, withText = true) }?.let { return Load.Ok(it) }
+        return fetcher.get("links:$ref|$book", ::decode) { etag -> api.links(ref, withText = true, book = book, etag = etag) }
+    }
+
+    private suspend fun local(ref: String, source: String, f: suspend (Ref) -> LinksDto?): LinksDto? {
+        if (offline == null || library == null) return null
+        val b = (library.book(source) as? Load.Ok)?.value ?: return null
+        val r = Ref.parseOrNull(Catalog(listOf(b)), ref.replace('_', ' ')) ?: return null
+        return f(r)
+    }
 
     private suspend fun decode(json: String): LinksDto =
         withContext(Dispatchers.Default) { SefariaJson.decodeFromString(LinksDto.serializer(), json) }

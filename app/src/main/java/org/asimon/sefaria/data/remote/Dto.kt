@@ -52,6 +52,7 @@ data class BookDto(
     @SerialName("he_categories") val heCategories: List<String> = emptyList(),
     val dependence: String = "",
     @SerialName("base_text_titles") val baseTextTitles: List<String> = emptyList(),
+    @SerialName("collective_title") val collectiveTitle: String = "",
     val authors: List<String> = emptyList(), // slugs
     @SerialName("author_names") val authorNames: List<Bilingual> = emptyList(),
     val desc: Bilingual = Bilingual(),
@@ -237,15 +238,26 @@ data class ErrorDto(val error: ErrorBody) {
     data class ErrorBody(val code: String = "", val message: String = "", val suggestions: List<String> = emptyList())
 }
 
-/** One downloadable book (/v1/packs, SERVER_SPEC §7). */
+/** The library of a build (/v1/library, SERVER_SPEC §7a): files named by their sha256. */
 @Serializable
-data class PackDto(
-    val book: String,
+data class LibraryDto(
+    val format: Int = 0,
+    @SerialName("build_id") val buildId: String = "",
+    val dict: LibraryFileDto,
+    val books: List<LibraryFileDto> = emptyList(),
+    val links: LibraryFileDto? = null,
+)
+
+/**
+ * A file of the library, downloaded from /v1/library/<file>; [book] is set for book files.
+ * The name is the file's sha256 and an extension.
+ */
+@Serializable
+data class LibraryFileDto(
+    val book: String = "",
     val he: String = "",
     val file: String,
-    val url: String, // download path, includes the build id
     val bytes: Long,
-    val sha256: String,
-    val sections: Int = 0,
-    val segments: Int = 0,
-)
+) {
+    val sha256 get() = file.substringBefore('.')
+}

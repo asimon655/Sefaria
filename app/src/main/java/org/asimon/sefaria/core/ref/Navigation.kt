@@ -25,3 +25,21 @@ fun Book.prevSection(section: Ref): Ref? {
 /** The segment ref with a displayed segment number within a section (numbering offsets undone). */
 fun Ref.segment(number: Int): Ref =
     copy(sections = sections + (number - 1 - node.offset(sections.size, sections)), to = null)
+
+/**
+ * A ref for slots [start, end): a segment, a whole section when the interval is exactly one,
+ * or a segment range; an interval that crosses schema nodes is cut at the end of the first.
+ * Mirrors the server's ref.FromSlots.
+ */
+fun Book.fromSlots(start: Int, end: Int): Ref {
+    val s = Ref.at(this, start)
+    if (end - start <= 1) return s
+    val sec = s.section()
+    if (sec.sections.isNotEmpty() || sec.node.isJagged) {
+        val r = runCatching { sec.slots() }.getOrNull()
+        if (r != null && r.first == start && r.last + 1 == end) return sec
+    }
+    var e = Ref.at(this, end - 1)
+    if (e.node !== s.node) e = Ref.at(this, s.node.slotEnd - 1)
+    return s.copy(to = e.sections)
+}

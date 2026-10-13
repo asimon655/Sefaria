@@ -37,38 +37,47 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.R
 import org.asimon.sefaria.ReaderRoute
-import org.asimon.sefaria.data.local.InstalledPack
-import org.asimon.sefaria.data.remote.PackDto
+import org.asimon.sefaria.data.local.InstalledBook
+import org.asimon.sefaria.data.remote.LibraryFileDto
+import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.data.repo.DownloadState
 import org.asimon.sefaria.data.repo.Load
-import org.asimon.sefaria.data.repo.PackRepository
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.text
 import javax.inject.Inject
 
 @HiltViewModel
-class DownloadsViewModel @Inject constructor(private val packs: PackRepository) : ViewModel() {
-    val installed = packs.installed
-    val downloads = packs.downloads
-    private val _available = MutableStateFlow<Map<String, PackDto>>(emptyMap())
-    /** The server's packs by book; empty while unknown (e.g. offline). */
+class DownloadsViewModel @Inject constructor(private val repo: DownloadRepository) : ViewModel() {
+    val installed = repo.installed
+    val downloads = repo.downloads
+    val bytes = repo.bytes
+    private val _available = MutableStateFlow<Map<String, LibraryFileDto>>(emptyMap())
+    /** The server's books by title; empty while unknown (e.g. offline). */
     val available = _available.asStateFlow()
+    private val _extra = MutableStateFlow(0L)
+    /** What a download adds beyond the book: the connections file, until it is downloaded. */
+    val extra = _extra.asStateFlow()
 
     init {
         viewModelScope.launch {
-            packs.scan()
-            (packs.available() as? Load.Ok)?.let { _available.value = it.value }
+            repo.scan()
+            (repo.available() as? Load.Ok)?.let { _available.value = it.value }
+            _extra.value = repo.firstDownloadBytes()
+            repo.refreshLinks()
         }
+        // recheck when a book is added or removed, and when a download ends (the links file comes after its book)
+        viewModelScope.launch { merge(repo.installed, repo.downloads).collect { _extra.value = repo.firstDownloadBytes() } }
     }
 
-    fun download(book: String) { _available.value[book]?.let(packs::download) }
-    fun cancel(book: String) = packs.cancel(book)
-    fun delete(book: String) = viewModelScope.launch { packs.delete(book) }
+    fun download(book: String) { if (book in _available.value) repo.download(book) }
+    fun cancel(book: String) = repo.cancel(book)
+    fun delete(book: String) = viewModelScope.launch { repo.delete(book) }
     /** Pass the [available] entry read in composition, so the UI updates when the listing arrives. */
-    fun updateAvailable(p: InstalledPack, available: PackDto?) = packs.updateAvailable(p, available)
+    fun updateAvailable(p: InstalledBook, available: LibraryFileDto?) = repo.updateAvailable(p, available)
 }
 
 @Composable
@@ -80,6 +89,7 @@ fun BookDownload(book: String, vm: DownloadsViewModel) {
     val installed by vm.installed.collectAsStateWithLifecycle()
     val downloads by vm.downloads.collectAsStateWithLifecycle()
     val available by vm.available.collectAsStateWithLifecycle()
+    val extra by vm.extra.collectAsStateWithLifecycle()
     val pack = installed[book]
     val pad = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
     when (val d = downloads[book]) {
@@ -98,7 +108,7 @@ fun BookDownload(book: String, vm: DownloadsViewModel) {
         } else available[book]?.let { p ->
             OutlinedButton(onClick = { vm.download(book) }, modifier = pad) {
                 Icon(Icons.Outlined.Download, contentDescription = null)
-                Text(stringResource(R.string.download_size, size(p.bytes)), Modifier.padding(start = 8.dp))
+                Text(stringResource(R.string.download_size, size(p.bytes + extra)), Modifier.padding(start = 8.dp))
             }
         }
     }
@@ -121,6 +131,7 @@ fun DownloadsList(onOpen: (ReaderRoute) -> Unit, vm: DownloadsViewModel) {
     val installed by vm.installed.collectAsStateWithLifecycle()
     val downloads by vm.downloads.collectAsStateWithLifecycle()
     val available by vm.available.collectAsStateWithLifecycle()
+    val bytes by vm.bytes.collectAsStateWithLifecycle()
     val pending = downloads.keys.filter { it !in installed }.sorted()
     if (installed.isEmpty() && pending.isEmpty()) {
         Text(
@@ -133,7 +144,7 @@ fun DownloadsList(onOpen: (ReaderRoute) -> Unit, vm: DownloadsViewModel) {
     LazyColumn {
         item(key = "total") {
             Text(
-                stringResource(R.string.storage_used, size(installed.values.sumOf { it.bytes })),
+                stringResource(R.string.storage_used, size(bytes)),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

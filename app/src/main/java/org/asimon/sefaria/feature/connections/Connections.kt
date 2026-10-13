@@ -154,11 +154,12 @@ class ConnectionsViewModel @Inject constructor(
     /** Fetches one book's texts for the current ref, once. */
     fun ensureTexts(book: String) {
         val ref = _state.value.ref ?: return
+        val source = _state.value.book ?: return
         if (book in _state.value.texts) return
         _state.update { it.copy(texts = it.texts + (book to BookTexts())) }
         viewModelScope.launch {
             val p = settings.prefs.value
-            val texts = when (val r = repo.withText(ref, book)) {
+            val texts = when (val r = repo.withText(ref, source, book)) {
                 is Load.Ok -> BookTexts(loading = false, links = withContext(Dispatchers.Default) {
                     r.value.groups.flatMap { g -> g.books }.filter { it.title == book }.flatMap { b ->
                         b.links.map { l ->

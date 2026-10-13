@@ -15,15 +15,16 @@ import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import org.asimon.sefaria.BuildConfig
 import org.asimon.sefaria.data.Settings
-import org.asimon.sefaria.data.local.PackStore
+import org.asimon.sefaria.data.local.LibraryStore
 import org.asimon.sefaria.data.local.SefariaDb
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.data.repo.LinksRepository
-import org.asimon.sefaria.data.repo.PackDownloader
-import org.asimon.sefaria.data.repo.PackRepository
+import org.asimon.sefaria.data.repo.DownloadRepository
+import org.asimon.sefaria.data.repo.FileDownloader
+import org.asimon.sefaria.data.repo.OfflineLibrary
 import org.asimon.sefaria.data.repo.CalendarRepository
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.data.repo.TextRepository
@@ -64,26 +65,34 @@ object AppModule {
     fun buildInfo() = BuildInfo()
 
     @Provides @Singleton
-    fun packStore(@ApplicationContext ctx: Context) = PackStore(File(ctx.filesDir, "packs"))
+    fun libraryStore(@ApplicationContext ctx: Context): LibraryStore {
+        File(ctx.filesDir, "packs").deleteRecursively() // downloads of app versions before the library files
+        return LibraryStore(File(ctx.filesDir, "library"))
+    }
 
     @Provides @Singleton
-    fun fetcher(api: Api, db: SefariaDb, build: BuildInfo, packs: PackStore) = CachedFetcher(api, db.cache(), build, packs)
+    fun offline(store: LibraryStore) = OfflineLibrary(store)
 
     @Provides @Singleton
-    fun packs(api: Api, fetcher: CachedFetcher, store: PackStore, client: OkHttpClient, settings: Settings, scope: CoroutineScope) =
-        PackRepository(api, fetcher, store, PackDownloader(client, settings::serverUrl), scope)
+    fun fetcher(api: Api, db: SefariaDb, build: BuildInfo, store: LibraryStore) = CachedFetcher(api, db.cache(), build, store)
+
+    @Provides @Singleton
+    fun downloads(api: Api, fetcher: CachedFetcher, store: LibraryStore, client: OkHttpClient, settings: Settings, scope: CoroutineScope) =
+        DownloadRepository(api, fetcher, store, FileDownloader(client, settings::serverUrl), scope)
 
     @Provides @Singleton
     fun library(api: Api, fetcher: CachedFetcher) = LibraryRepository(api, fetcher)
 
     @Provides @Singleton
-    fun text(api: Api, fetcher: CachedFetcher) = TextRepository(api, fetcher)
+    fun text(api: Api, fetcher: CachedFetcher, offline: OfflineLibrary) = TextRepository(api, fetcher, offline)
 
     @Provides @Singleton
-    fun links(api: Api, fetcher: CachedFetcher) = LinksRepository(api, fetcher)
+    fun links(api: Api, fetcher: CachedFetcher, offline: OfflineLibrary, library: LibraryRepository) =
+        LinksRepository(api, fetcher, offline, library)
 
     @Provides @Singleton
-    fun search(api: Api, library: LibraryRepository, packs: PackStore) = SearchRepository(api, library, packs)
+    fun search(api: Api, library: LibraryRepository, store: LibraryStore, offline: OfflineLibrary) =
+        SearchRepository(api, library, store, offline)
 
     @Provides @Singleton
     fun calendar(api: Api, fetcher: CachedFetcher) = CalendarRepository(api, fetcher)

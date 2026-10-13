@@ -5,9 +5,9 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
 import okio.Buffer
-import org.asimon.sefaria.data.remote.PackDto
+import org.asimon.sefaria.data.remote.LibraryFileDto
 import org.asimon.sefaria.data.repo.AppError
-import org.asimon.sefaria.data.repo.PackDownloader
+import org.asimon.sefaria.data.repo.FileDownloader
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -19,17 +19,18 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.security.MessageDigest
 
-class PackDownloaderTest {
+class FileDownloaderTest {
     @get:Rule val tmp = TemporaryFolder()
     private val server = MockWebServer()
-    private lateinit var dl: PackDownloader
+    private lateinit var dl: FileDownloader
     private val data = ByteArray(300_000) { (it * 7 % 251).toByte() }
-    private val pack = PackDto("Genesis", file = "0.sqlite", url = "/v1/b/b1/packs/0.sqlite", bytes = data.size.toLong(), sha256 = sha(data))
+    private val file = LibraryFileDto("Genesis", file = sha(data) + ".sfb", bytes = data.size.toLong())
+    private val path = "/v1/library/" + file.file
 
     @Before
     fun setUp() {
         server.start()
-        dl = PackDownloader(OkHttpClient()) { server.url("/").toString() }
+        dl = FileDownloader(OkHttpClient()) { server.url("/").toString() }
     }
 
     @After
@@ -43,10 +44,10 @@ class PackDownloaderTest {
         server.enqueue(body(data))
         val part = tmp.root.resolve("g.part")
         val seen = ArrayList<Long>()
-        assertNull(dl.download(pack, part) { seen += it })
+        assertNull(dl.download(path, file, part) { seen += it })
         assertArrayEquals(data, part.readBytes())
         assertEquals(data.size.toLong(), seen.last())
-        assertEquals("/v1/b/b1/packs/0.sqlite", server.takeRequest().url.encodedPath)
+        assertEquals(path, server.takeRequest().url.encodedPath)
     }
 
     @Test
@@ -54,7 +55,7 @@ class PackDownloaderTest {
         val part = tmp.root.resolve("g.part")
         part.writeBytes(data.copyOf(100_000))
         server.enqueue(body(data.copyOfRange(100_000, data.size), code = 206))
-        assertNull(dl.download(pack, part))
+        assertNull(dl.download(path, file, part))
         assertArrayEquals(data, part.readBytes())
         assertEquals("bytes=100000-", server.takeRequest().headers["Range"])
     }
@@ -64,7 +65,7 @@ class PackDownloaderTest {
         val part = tmp.root.resolve("g.part")
         part.writeBytes(ByteArray(100_000))
         server.enqueue(body(data)) // 200: the whole file
-        assertNull(dl.download(pack, part))
+        assertNull(dl.download(path, file, part))
         assertArrayEquals(data, part.readBytes())
     }
 
@@ -72,7 +73,7 @@ class PackDownloaderTest {
     fun badChecksumDeletesPart() = runTest {
         val part = tmp.root.resolve("g.part")
         server.enqueue(body(data.copyOf().also { it[5] = 0x55 }))
-        assertEquals(AppError.BadResponse("checksum mismatch for Genesis"), dl.download(pack, part))
+        assertEquals(AppError.BadResponse("checksum mismatch for Genesis"), dl.download(path, file, part))
         assertFalse(part.exists())
     }
 
@@ -80,8 +81,8 @@ class PackDownloaderTest {
     fun errors() = runTest {
         val part = tmp.root.resolve("g.part")
         server.enqueue(MockResponse.Builder().code(404).build())
-        assertEquals(AppError.NotFound("pack Genesis"), dl.download(pack, part))
+        assertEquals(AppError.NotFound("Genesis"), dl.download(path, file, part))
         server.close()
-        assertEquals(AppError.Network, dl.download(pack, part))
+        assertEquals(AppError.Network, dl.download(path, file, part))
     }
 }

@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.builtins.ListSerializer
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -60,8 +59,11 @@ class Api(
             book?.let { put("book", it) }
         })
 
-    /** The downloadable books of the server's build. */
-    suspend fun packs(etag: String? = null) = get("/v1/packs", ListSerializer(PackDto.serializer()), etag)
+    /** The library of the server's build: book files, links file and their dictionary. */
+    suspend fun library(etag: String? = null) = get("/v1/library", LibraryDto.serializer(), etag)
+
+    /** Where a library file is downloaded from. */
+    fun libraryPath(file: String) = "/v1/library/$file"
 
     suspend fun resolve(q: String) = get("/v1/resolve", ResolveDto.serializer(), query = mapOf("q" to q))
 
