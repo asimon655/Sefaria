@@ -149,7 +149,7 @@ class SearchAssessment {
 
     private fun queries(): List<Query> {
         val out = ArrayList<Query>()
-        val tsv = File(System.getenv("SEFARIA_QUERIES") ?: "../../server/internal/search/testdata/queries.tsv")
+        val tsv = File(System.getenv("SEFARIA_QUERIES") ?: "../../sefaria_dev/server/internal/search/testdata/queries.tsv")
         if (tsv.isFile && System.getenv("SEFARIA_EXTRA_ONLY") == null) for (line in tsv.readLines()) {
             if (line.isBlank() || line.startsWith("#")) continue
             val f = line.removePrefix("!").split('\t')
