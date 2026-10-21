@@ -1,6 +1,6 @@
 # Sefaria reader (Android)
 
-A native, offline-first reader for the server in `/Volumes/KINGSTON/sefaria_dev` (specs and roadmap in its `docs/`).
+A native, offline-first reader for the server in the parent folder, `..` (specs and roadmap in `../docs/`).
 
 ```
 org.asimon.sefaria
@@ -21,7 +21,7 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ./gradlew :app:connectedDebugAndroidTest   # needs a device: FTS5 spike + Room checks
 ```
 
-Run the server for the emulator: `cd /Volumes/KINGSTON/sefaria_dev/server && go run ./cmd/sefaria-server -addr :8080`. The server URL can be changed in Settings.
+Run the server for the emulator: `cd ../server && go run ./cmd/sefaria-server -addr :8080`. The server URL can be changed in Settings.
 
 ## Emulator (lives on the KINGSTON drive)
 
@@ -38,4 +38,4 @@ hdiutil attach -nobrowse -mountpoint ~/.android/avd /Volumes/KINGSTON/android/av
 
 ## Test fixtures
 
-`app/src/test/resources/fixtures/` holds JSON recorded from the real server plus `vectors.tsv` and `fixture_catalog.json`, copied from `server/internal/ref/testdata`. When the server's API or ref model changes, re-record and re-copy them.
+`app/src/test/resources/fixtures/` holds JSON recorded from the real server. `vectors.tsv` and `fixture_catalog.json` (from `server/internal/ref/testdata`) and `normalize.tsv`, `forms.tsv` and `match.tsv` (from `server/internal/search/testdata`) are relative symlinks into `../server`, so they stay in sync; this repo's tests need the server checked out next to it. When the server's API changes, re-record the JSON.
