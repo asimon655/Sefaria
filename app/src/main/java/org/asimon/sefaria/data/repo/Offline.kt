@@ -8,7 +8,10 @@ import kotlinx.coroutines.withContext
 import org.asimon.sefaria.core.ref.Book
 import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.core.ref.fromSlots
-import org.asimon.sefaria.core.text.SearchText
+import org.asimon.sefaria.core.text.Clause
+import org.asimon.sefaria.core.text.Kind
+import org.asimon.sefaria.core.text.SearchMatch
+import org.asimon.sefaria.data.local.IndexFile
 import org.asimon.sefaria.data.local.LibraryStore
 import org.asimon.sefaria.data.local.LinkRecords
 import org.asimon.sefaria.data.local.LinksFile
@@ -19,7 +22,6 @@ import org.asimon.sefaria.data.remote.LinkGroupDto
 import org.asimon.sefaria.data.remote.LinksDto
 import org.asimon.sefaria.data.remote.SearchHitDto
 import org.asimon.sefaria.data.remote.SefariaJson
-import java.text.Normalizer
 
 /**
  * Reading from the downloaded library (SERVER_SPEC §7a) with the server's own rules, so
@@ -145,39 +147,70 @@ class OfflineLibrary(private val store: LibraryStore) {
     }
 
     /**
-     * Full-text search in one downloaded book: up to [limit] hits after slot [after] in reading
-     * order, in [lang]'s default version, matching all [terms] as the server's index does. Each
-     * hit comes with its slot (for the paging cursor). Null if the book is not downloaded.
+     * Full-text search in one downloaded book (SERVER_SPEC §6.6a): up to [limit] hits after slot
+     * [after] in reading order, in [lang]'s default version, that match [q] in [tier] 1 (every
+     * clause exactly) or 2 (the rest). The book's index file picks the blocks that may match;
+     * without one (or for a word* clause) every block is read. Each hit comes with its slot (for
+     * the paging cursor). Null if the book is not downloaded.
      */
-    suspend fun search(book: Book, lang: String, terms: List<SearchText.Term>, after: Int, limit: Int): List<Pair<Int, SearchHitDto>>? =
+    suspend fun search(book: Book, lang: String, q: List<Clause>, tier: Int, after: Int, limit: Int) =
+        search(book.title, { book }, lang, q, tier, after, limit)
+
+    // [book] is asked for only when there is a hit: decoding thousands of books' metadata per page
+    // is what made searching the whole library slow.
+    suspend fun search(title: String, book: suspend () -> Book?, lang: String, q: List<Clause>, tier: Int, after: Int, limit: Int): List<Pair<Int, SearchHitDto>>? =
         withContext(Dispatchers.Default) {
-            val f = store.book(book.title) ?: return@withContext null
+            val candidates = store.index(title)?.let { candidateBlocks(it, lang, q, exact = tier == 1) }
+            if (candidates != null && candidates.isEmpty()) return@withContext emptyList()
+            val f = store.book(title) ?: return@withContext null
             val t = f.text(lang) ?: return@withContext emptyList()
-            val folded = terms.map { it.copy(tokens = it.tokens.map(::fold)) }
             val out = ArrayList<Pair<Int, SearchHitDto>>()
             val from = after + 1
             if (from >= t.slots) return@withContext out
+            var b: Book? = null
             blocks@ for (bi in t.blockOf(from) until t.blocks.size) {
+                if (candidates != null && bi !in candidates) continue
                 ensureActive()
                 val lines = store.block(f, t, bi)
                 val first = t.first(bi)
                 for (j in maxOf(from - first, 0) until lines.size) {
                     val line = lines[j]
-                    if (line.isEmpty() || !matches(line, folded)) continue
-                    val r = Ref.at(book, first + j)
-                    out += first + j to SearchHitDto(r.url(), r.human(), r.hebrew(), book.title, SearchText.snippet(line, terms))
+                    if (line.isEmpty()) continue
+                    val hit = SearchMatch.match(SearchMatch.tokens(line), q) ?: continue
+                    if ((tier == 1) != (hit.kind == Kind.EXACT)) continue
+                    val bk = b ?: book()?.also { b = it } ?: return@withContext null
+                    val r = Ref.at(bk, first + j)
+                    out += first + j to SearchHitDto(r.url(), r.human(), r.hebrew(), bk.title, SearchMatch.snippet(line, q), hit.kind.wire)
                     if (out.size == limit) break@blocks
                 }
             }
             out
         }
 
+    // The blocks that may hold a match: for each clause, the blocks holding every word (in one of
+    // its forms, or only the word itself for [exact]), intersected across clauses. Null when a
+    // clause can't be looked up (word*), and every block must be read.
+    private fun candidateBlocks(ix: IndexFile, lang: String, q: List<Clause>, exact: Boolean): Set<Int>? {
+        var acc: Set<Int>? = null
+        for (c in q) {
+            if (c.any { it.prefix }) return null
+            for (w in c) {
+                val alts = if (exact) listOf(w.text) else listOf(w.text) + w.forms.keys
+                val blocks = HashSet<Int>()
+                for (a in alts) ix.blocks(lang, a).forEach { blocks += it }
+                acc = acc?.intersect(blocks) ?: blocks
+                if (acc.isEmpty()) return acc
+            }
+        }
+        return acc
+    }
+
     // The links file answers for a book unless the downloaded book is another file than the one
     // its records were built against (slots may differ): then the server answers.
     private suspend fun records(l: LinksFile, title: String): LinkRecords? {
         val i = l.indexOf(title) ?: return null
-        val installed = store.installed.value[title]
-        if (installed != null && installed.file != l.header.books[i].file) return null
+        val installed = store.bookFile(title)
+        if (installed != null && installed != l.header.books[i].file) return null
         return store.records(i)
     }
 
@@ -203,23 +236,5 @@ class OfflineLibrary(private val store: LibraryStore) {
         private const val QUOTING = "Quoting Commentary"
         private const val TARGUM = "Targum"
         private val GROUP_HE = mapOf(COMMENTARY to "מפרשים", QUOTING to "מפרשים מצטטים", TARGUM to "תרגומים", "Other" to "אחר")
-
-        /** Whether a segment (HTML) holds every term: words in order for a phrase, the last one as a prefix for word*. */
-        internal fun matches(line: String, terms: List<SearchText.Term>): Boolean {
-            val toks = fold(SearchText.normalize(line)).split(' ')
-            return terms.all { t ->
-                val n = t.tokens.size
-                (0..toks.size - n).any { s ->
-                    (0 until n).all { k ->
-                        if (t.prefix && k == n - 1) toks[s + k].startsWith(t.tokens[k]) else toks[s + k] == t.tokens[k]
-                    }
-                }
-            }
-        }
-
-        /** Latin letters without diacritics (é → e), as the server index's tokenizer folds them. */
-        internal fun fold(s: String): String =
-            if (s.none { it.code in 0xC0..0x24F }) s
-            else Normalizer.normalize(s, Normalizer.Form.NFD).filter { Character.getType(it) != Character.NON_SPACING_MARK.toInt() }
     }
 }

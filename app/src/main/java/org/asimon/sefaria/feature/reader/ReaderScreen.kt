@@ -65,7 +65,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CloudOff
@@ -110,7 +109,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.runtime.ReadOnlyComposable
+import org.asimon.sefaria.ui.LocalTextFonts
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
@@ -192,10 +192,12 @@ fun ReaderScreen(
         }
     }
 
+    val paragraphPad = with(LocalDensity.current) { ParagraphPad.roundToPx() }
+
     /** Scrolls so that a segment is at the top (inside its paragraph in paragraph flow). */
     suspend fun scrollTo(key: String, animate: Boolean, line: Int = 0) {
         val row = rows.rowOf(key) ?: return
-        val offset = ((rows.rows[row] as? ParagraphRow)?.let { paragraphLayouts[it.key]?.topOf(key) } ?: 0) - line
+        val offset = ((rows.rows[row] as? ParagraphRow)?.let { p -> paragraphLayouts[p.key]?.topOf(key)?.let { it + paragraphPad } } ?: 0) - line
         if (animate) list.animateScrollToItem(row, offset) else list.scrollToItem(row, offset)
     }
 
@@ -216,20 +218,50 @@ fun ReaderScreen(
         vm.onVisible(rows.firstItemOf(list.firstVisibleItemIndex), rows.lastItemOf(list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: row))
     }
     LaunchedEffect(list) {
-        snapshotFlow { list.firstVisibleItemIndex to (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) }
-            .collect { (first, last) -> vm.onVisible(currentRows.firstItemOf(first), currentRows.lastItemOf(last)) }
+        // the row count too: a section that loads while nothing on screen moves (a short one, or
+        // the list already at its end) is checked again for the next one
+        snapshotFlow { Triple(list.firstVisibleItemIndex, list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0, currentRows.rows.size) }
+            .collect { (first, last, _) -> vm.onVisible(currentRows.firstItemOf(first), currentRows.lastItemOf(last)) }
     }
+    /**
+     * The verses on screen as the snap rule sees them: a verse-per-line row is one; in a
+     * paragraph, each line where a verse starts is one (verses starting on the same line share
+     * it, and the first of them stands for it), down to the next such line.
+     */
+    fun verseSpots(): List<VerseSpot> {
+        val out = ArrayList<VerseSpot>()
+        for (info in list.layoutInfo.visibleItemsInfo) {
+            when (val row = currentRows.rows.getOrNull(info.index)) {
+                is LineRow -> out += VerseSpot(SnapItem(out.size, info.offset, info.offset + info.size), info.index, 0, row.item.key)
+                is ParagraphRow -> {
+                    val laid = paragraphLayouts[row.key] ?: continue
+                    val starts = row.segments.mapNotNull { seg -> laid.topOf(seg.key)?.let { seg.key to it + paragraphPad } }
+                        .distinctBy { it.second }
+                    for ((j, start) in starts.withIndex()) {
+                        val (key, top) = start
+                        val bottom = starts.getOrNull(j + 1)?.second ?: (info.size - paragraphPad)
+                        out += VerseSpot(SnapItem(out.size, info.offset + top, info.offset + bottom), info.index, top, key)
+                    }
+                }
+                else -> {}
+            }
+        }
+        return out
+    }
+
     // While connections are open they follow the reading: when a scroll ends, the segment at
-    // the top of the text becomes the selected one.
+    // the top of the text becomes the selected one (with snapping, the one at the snap line).
     LaunchedEffect(list, selectedKey != null) {
         if (selectedKey == null) return@LaunchedEffect
         snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
+            if (prefs.snapToVerse) {
+                val at = list.layoutInfo.viewportStartOffset + snapLine
+                verseSpots().firstOrNull { it.item.bottom > at + 1 }?.let { selectedKey = it.key }
+                return@collect
+            }
             for (info in list.layoutInfo.visibleItemsInfo) {
                 val key = when (val row = currentRows.rows.getOrNull(info.index)) {
-                    is LineRow -> row.item.key.takeIf {
-                        if (prefs.snapToVerse) info.index == verseAtLine(list.layoutInfo, snapLine) { i -> currentRows.rows.getOrNull(i) is LineRow }
-                        else info.offset >= -info.size / 3
-                    }
+                    is LineRow -> row.item.key.takeIf { info.offset >= -info.size / 3 }
                     is ParagraphRow -> paragraphLayouts[row.key]?.segmentAt(Offset(1f, maxOf(0, -info.offset) + 1f))?.key
                         ?: row.segments.first().key
                     else -> null
@@ -239,13 +271,16 @@ fun ReaderScreen(
             }
         }
     }
-    // Snap to verses while connections are open (verse-per-line only; see Snap.kt). Runs after
-    // the follow effect above has seen the gesture end, and its own scroll ends on a verse top.
-    LaunchedEffect(list, selectedKey != null, prefs.snapToVerse, paragraphs) {
-        if (selectedKey == null || !prefs.snapToVerse || paragraphs) return@LaunchedEffect
+    // Snap to verses while connections are open (see Snap.kt), in both flows. Runs after the
+    // follow effect above has seen the gesture end, and its own scroll ends on a verse top.
+    LaunchedEffect(list, selectedKey != null, prefs.snapToVerse) {
+        if (selectedKey == null || !prefs.snapToVerse) return@LaunchedEffect
         snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
-            val target = snapTarget(list.layoutInfo, snapLine, isVerse = { i -> currentRows.rows.getOrNull(i) is LineRow }) ?: return@collect
-            list.animateScrollToItem(target, -snapLine)
+            val spots = verseSpots()
+            val info = list.layoutInfo
+            val target = snapTarget(spots.map { it.item }, info.viewportStartOffset, info.viewportEndOffset, snapLine) ?: return@collect
+            val spot = spots[target]
+            list.animateScrollToItem(spot.row, spot.inRow - snapLine)
         }
     }
     BackHandler(enabled = selecting) { selAnchor = null; selEnd = null }
@@ -323,7 +358,7 @@ fun ReaderScreen(
         },
     ) { padding ->
         when {
-            s.error != null -> ErrorMessage(s.error!!.text(), { vm.open() }, Modifier.padding(padding))
+            s.error != null -> ErrorMessage(s.error!!, { vm.open() }, Modifier.padding(padding))
             s.loading -> Loading(Modifier.padding(padding))
             else -> BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
                 val wide = maxWidth >= 600.dp
@@ -335,7 +370,7 @@ fun ReaderScreen(
                         selectedKey = item.key
                         when {
                             // snapping: the tapped verse settles at the snap line, like a scroll would
-                            prefs.snapToVerse && !paragraphs -> scope.launch { scrollTo(item.key, animate = true, line = snapLine) }
+                            prefs.snapToVerse -> scope.launch { scrollTo(item.key, animate = true, line = snapLine) }
                             // on a phone the panel takes the lower part: keep the tapped segment in view
                             opening && !wide -> scope.launch { scrollTo(item.key, animate = true) }
                         }
@@ -393,7 +428,7 @@ fun ReaderScreen(
                 val selected = s.items.firstOrNull { it.key == selectedKey } as? SegmentItem
                 val openLink = { r: ReaderRoute ->
                     // the selected segment becomes the newest step of the trail
-                    val from = selected?.let { TrailStep(it.ref.book.title, it.key, it.ref.human(), it.ref.hebrew(), s.bookCategory).encode() }
+                    val from = selected?.let { TrailStep(it.ref.book.title, it.key, it.ref.human(), it.ref.hebrew(), s.bookCategory) }
                     onOpen(r.copy(trail = vm.trail + listOfNotNull(from)))
                 }
                 when {
@@ -424,10 +459,12 @@ fun ReaderScreen(
     if (showDisplay) DisplaySheet(prefs, vm, onDismiss = { showDisplay = false })
 }
 
+/** A snap point: [item] in viewport pixels, the list row it is in and its top inside the row, and its segment. */
+private data class VerseSpot(val item: SnapItem, val row: Int, val inRow: Int, val key: String)
+
 /** The steps that led to this text, then the current place; tapping a step goes back to it. */
 @Composable
-private fun TrailBar(trail: List<String>, current: String, currentCategory: String, onStep: (Int) -> Unit) {
-    val steps = remember(trail) { TrailStep.decodeAll(trail) }
+private fun TrailBar(steps: List<TrailStep>, current: String, currentCategory: String, onStep: (Int) -> Unit) {
     val state = rememberLazyListState()
     LaunchedEffect(steps.size) { state.scrollToItem(steps.size) } // show the newest steps
     LazyRow(
@@ -516,12 +553,16 @@ private fun SectionHeader(title: String) {
     )
 }
 
+@Composable
+@ReadOnlyComposable
 private fun heStyle(scale: Float) = TextStyle(
-    fontFamily = FontFamily.Serif, fontSize = (21 * scale).sp, lineHeight = 1.55.em, textDirection = TextDirection.Rtl,
+    fontFamily = LocalTextFonts.current.he, fontSize = (21 * scale).sp, lineHeight = 1.55.em, textDirection = TextDirection.Rtl,
 )
 
+@Composable
+@ReadOnlyComposable
 private fun enStyle(scale: Float) = TextStyle(
-    fontFamily = FontFamily.Serif, fontSize = (17 * scale).sp, lineHeight = 1.5.em, textDirection = TextDirection.Ltr,
+    fontFamily = LocalTextFonts.current.en, fontSize = (17 * scale).sp, lineHeight = 1.5.em, textDirection = TextDirection.Ltr,
 )
 
 @Composable
@@ -543,7 +584,7 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: (
                 .semantics { contentDescription = refLabel }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            // the number, with a notes marker under it, so text columns stay aligned
+            // the number, with the link count under it, so text columns stay aligned
             Column(Modifier.widthIn(min = 28.dp).padding(top = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     item.label,
@@ -557,9 +598,6 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: (
                     color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.semantics { contentDescription = "" },
                 )
-                if ((he?.notes.orEmpty() + en?.notes.orEmpty()).isNotEmpty()) {
-                    Icon(Icons.AutoMirrored.Outlined.Notes, contentDescription = stringResource(R.string.has_notes), Modifier.padding(top = 4.dp).width(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
             }
             Spacer(Modifier.width(6.dp))
             val scale = prefs.fontScale
@@ -585,7 +623,7 @@ private fun SegText(text: RichText?, style: TextStyle, modifier: Modifier = Modi
     Text(text.text, style = style, color = MaterialTheme.colorScheme.onSurface, modifier = modifier.fillMaxWidth())
 }
 
-/** The selected segment's actions, notes and connections (in the split or the side pane). */
+/** The selected segment's actions and connections (in the split or the side pane). */
 @Composable
 private fun ConnectionsPanel(
     item: SegmentItem,
@@ -614,19 +652,6 @@ private fun ConnectionsPanel(
             return@Column
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-            val notes = item.he?.notes.orEmpty() + item.en?.notes.orEmpty()
-            if (notes.isNotEmpty()) {
-                item(key = "notes") {
-                    Column(Modifier.padding(vertical = 8.dp)) {
-                        for ((i, n) in notes.withIndex()) Text(
-                            "${i + 1}. $n",
-                            style = MaterialTheme.typography.bodyMedium.copy(textDirection = TextDirection.Content),
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                        HorizontalDivider(Modifier.padding(top = 8.dp))
-                    }
-                }
-            }
             connectionList(conn, pinned, prefs, actions)
         }
     }

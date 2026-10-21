@@ -51,7 +51,6 @@ data class BookText(val lang: String, val version: Int, val slots: Int, val bloc
 @Serializable
 data class LinksFileHeader(
     val format: Int,
-    @SerialName("build_id") val buildId: String = "",
     @SerialName("link_types") val linkTypes: List<String> = emptyList(),
     val categories: List<CategoryName> = emptyList(),
     val books: List<LinksBook> = emptyList(),

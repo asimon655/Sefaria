@@ -29,18 +29,6 @@ fun Loading(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ErrorMessage(message: String, onRetry: (() -> Unit)?, modifier: Modifier = Modifier) {
-    Column(
-        modifier.fillMaxWidth().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(message, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
-        if (onRetry != null) Button(onClick = onRetry) { Text(stringResource(R.string.retry)) }
-    }
-}
-
-@Composable
 fun BackButton(onBack: () -> Unit) {
     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
 }

@@ -1,25 +1,24 @@
 package org.asimon.sefaria.core
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+
 /**
- * The source trail: the places a reader came from by following connections, oldest first
- * (e.g. Genesis 1:2 → Rashi on Genesis 1:2:1 → Chagigah 12a). Each step is kept as one
- * string so routes and history rows can carry the trail as plain strings.
+ * A step of the source trail: a place the reader came from by following connections. A trail
+ * lists them oldest first (e.g. Genesis 1:2 → Rashi on Genesis 1:2:1 → Chagigah 12a); reader
+ * routes and history rows carry it as JSON ([encode]).
  */
+@Serializable
 data class TrailStep(val book: String, val ref: String, val en: String, val he: String, val category: String = "") {
-    fun encode() = listOf(book, ref, en, he, category).joinToString(UNIT.toString())
-
     companion object {
-        private const val UNIT = '\u001F' // between fields of a step
-        private const val RECORD = '\u001E' // between steps in a history row
+        private val list = ListSerializer(serializer())
 
-        fun decode(s: String): TrailStep? = s.split(UNIT).takeIf { it.size in 4..5 }
-            ?.let { TrailStep(it[0], it[1], it[2], it[3], it.getOrElse(4) { "" }) }
+        /** A trail as JSON; "" for none. */
+        fun encode(trail: List<TrailStep>): String = if (trail.isEmpty()) "" else Json.encodeToString(list, trail)
 
-        fun decodeAll(steps: List<String>): List<TrailStep> = steps.mapNotNull(::decode)
-
-        /** A route's trail as one history column. */
-        fun join(steps: List<String>) = steps.joinToString(RECORD.toString())
-
-        fun split(column: String): List<String> = if (column.isEmpty()) emptyList() else column.split(RECORD)
+        /** A trail from [encode]; empty for "" or anything unreadable. */
+        fun decode(s: String): List<TrailStep> =
+            if (s.isEmpty()) emptyList() else runCatching { Json.decodeFromString(list, s) }.getOrDefault(emptyList())
     }
 }

@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
 import android.os.Bundle
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,18 +14,22 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import org.asimon.sefaria.ui.theme.isDark
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldLayout
+import androidx.compose.material3.NavigationBarDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailDefaults
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.navigation.toRoute
-import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.feature.home.HomeScreen
 import org.asimon.sefaria.feature.onboarding.Onboarding
 import androidx.lifecycle.lifecycleScope
@@ -32,7 +37,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,6 +62,18 @@ import org.asimon.sefaria.feature.settings.SettingsScreen
 import org.asimon.sefaria.ui.theme.SefariaTheme
 import javax.inject.Inject
 import kotlin.reflect.KClass
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.asimon.sefaria.ui.DeviceFonts
+import org.asimon.sefaria.ui.LocalTextFonts
+import org.asimon.sefaria.ui.TextFonts
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -70,6 +86,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val prefs by settings.prefs.collectAsStateWithLifecycle()
+            val fonts by produceState(TextFonts(), prefs.heFont, prefs.enFont) {
+                value = withContext(Dispatchers.IO) { TextFonts(DeviceFonts.family(prefs.heFont), DeviceFonts.family(prefs.enFont)) }
+            }
             // system bar icons follow the app's theme, not the system's
             val dark = prefs.theme.isDark(isSystemInDarkTheme())
             DisposableEffect(dark) {
@@ -79,14 +98,24 @@ class MainActivity : ComponentActivity() {
                 onDispose {}
             }
             SefariaTheme(prefs.theme) {
-                if (prefs.onboarded) AppNav()
+                CompositionLocalProvider(LocalTextFonts provides fonts) {
+                if (prefs.onboarded) AppNav(prefs.navLabels)
                 else Onboarding(
                     prefs.layout,
                     onLayout = { l -> lifecycleScope.launch { settings.setLayout(l) } },
                     onDone = { lifecycleScope.launch { settings.setOnboarded() } },
                 )
+                }
             }
         }
+        // deferred startup work (App) waits for the first frame
+        val view = window.decorView
+        view.viewTreeObserver.addOnDrawListener(object : ViewTreeObserver.OnDrawListener {
+            override fun onDraw() {
+                Startup.firstFrameDrawn()
+                view.post { view.viewTreeObserver.removeOnDrawListener(this) } // not while drawing
+            }
+        })
     }
 }
 
@@ -98,35 +127,43 @@ private val tabs = listOf(
     Tab(SavedRoute, SavedRoute::class, R.string.tab_saved, Icons.Outlined.Bookmarks),
 )
 
-/** Bottom bar on phones, a side rail on wide screens (tablets, landscape); hidden in the reader. */
+/**
+ * Bottom bar on phones, a side rail on wide screens (tablets, landscape); hidden in the reader.
+ * Without [labels] the tabs show icons only, and the bottom bar is shorter.
+ */
 @Composable
-private fun AppNav() {
+private fun AppNav(labels: Boolean) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val dest = entry?.destination
     val showBar = dest != null && !dest.hasRoute(ReaderRoute::class) && !dest.hasRoute(SettingsRoute::class)
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            for (tab in tabs) {
-                val selected = dest?.hierarchy?.any { it.hasRoute(tab.type) } == true ||
-                    (tab.type == LibraryRoute::class && dest?.hasRoute(BookRoute::class) == true)
-                item(
-                    selected = selected,
-                    onClick = { nav.switchTab(tab.route) },
-                    icon = { Icon(tab.icon, contentDescription = null) },
-                    label = { Text(stringResource(tab.label)) },
-                )
-            }
-        },
-        // by width alone: a phone in landscape also gets the rail, which keeps its short height for content
-        layoutType = when {
-            !showBar -> NavigationSuiteType.None
-            LocalConfiguration.current.screenWidthDp >= 600 -> NavigationSuiteType.NavigationRail
-            else -> NavigationSuiteType.NavigationBar
-        },
+    fun selected(tab: Tab) = dest?.hierarchy?.any { it.hasRoute(tab.type) } == true ||
+        (tab.type == LibraryRoute::class && dest?.hasRoute(BookRoute::class) == true)
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    // by width alone: a phone in landscape also gets the rail, which keeps its short height for content
+    val type = when {
+        !showBar -> NavigationSuiteType.None
+        wide -> NavigationSuiteType.NavigationRail
+        else -> NavigationSuiteType.NavigationBar
+    }
+    // the scaffold's own bar has a fixed height, so the layout gets ours
+    Surface(color = MaterialTheme.colorScheme.background) {
+    NavigationSuiteScaffoldLayout(
+        navigationSuite = { TabBar(type, labels, ::selected) { nav.switchTab(it.route) } },
+        navigationSuiteType = type,
     ) {
         val open = { route: Any -> nav.navigate(route) }
-        NavHost(nav, startDestination = HomeRoute) {
+        NavHost(
+            nav, startDestination = HomeRoute,
+            // the bar pads itself for the system bars, so the pages don't
+            modifier = Modifier.consumeWindowInsets(
+                when (type) {
+                    NavigationSuiteType.NavigationBar -> NavigationBarDefaults.windowInsets.only(WindowInsetsSides.Bottom)
+                    NavigationSuiteType.NavigationRail -> NavigationRailDefaults.windowInsets.only(WindowInsetsSides.Start)
+                    else -> WindowInsets(0)
+                }
+            ),
+        ) {
             composable<HomeRoute> {
                 HomeScreen(onOpen = open, onSettings = { nav.navigate(SettingsRoute) })
             }
@@ -141,7 +178,7 @@ private fun AppNav() {
             composable<BookRoute> {
                 BookScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
             }
-            composable<ReaderRoute> {
+            composable<ReaderRoute>(typeMap = ReaderRoute.typeMap) {
                 ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) }, onTrail = nav::backAlongTrail)
             }
             composable<SearchRoute> {
@@ -154,6 +191,29 @@ private fun AppNav() {
                 SettingsScreen(onBack = { nav.popBackStack() })
             }
         }
+    }
+    }
+}
+
+/** The bottom bar's height without labels (with them, the standard 80dp). */
+private val ShortBarHeight = 56.dp
+
+@Composable
+private fun TabBar(type: NavigationSuiteType, labels: Boolean, selected: (Tab) -> Boolean, onTab: (Tab) -> Unit) {
+    // without labels the icon names the tab for screen readers
+    val icon = @Composable { tab: Tab -> Icon(tab.icon, contentDescription = if (labels) null else stringResource(tab.label)) }
+    fun label(tab: Tab): (@Composable () -> Unit)? = if (labels) { { Text(stringResource(tab.label)) } } else null
+    when (type) {
+        NavigationSuiteType.NavigationBar -> {
+            val inset = NavigationBarDefaults.windowInsets.asPaddingValues().calculateBottomPadding()
+            NavigationBar(if (labels) Modifier else Modifier.height(ShortBarHeight + inset)) {
+                for (tab in tabs) NavigationBarItem(selected(tab), { onTab(tab) }, icon = { icon(tab) }, label = label(tab))
+            }
+        }
+        NavigationSuiteType.NavigationRail -> NavigationRail {
+            for (tab in tabs) NavigationRailItem(selected(tab), { onTab(tab) }, icon = { icon(tab) }, label = label(tab))
+        }
+        else -> {}
     }
 }
 
@@ -173,7 +233,7 @@ private fun NavHostController.backAlongTrail(i: Int) {
     val current = stack.lastOrNull()?.toRoute<ReaderRoute>() ?: return
     val count = current.trail.size - i
     val target = stack.getOrNull(stack.size - 1 - count)
-    val step = TrailStep.decode(current.trail[i]) ?: return
+    val step = current.trail.getOrNull(i) ?: return
     val matches = target?.destination?.hasRoute(ReaderRoute::class) == true &&
         target.toRoute<ReaderRoute>().let { it.book == step.book && it.trail == current.trail.take(i) }
     if (matches) repeat(count) { popBackStack() }

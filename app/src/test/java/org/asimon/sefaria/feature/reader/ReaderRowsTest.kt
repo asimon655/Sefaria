@@ -46,6 +46,18 @@ class ReaderRowsTest {
     }
 
     @Test
+    fun footerStandsForTheLastItem() {
+        // the list's footer row (loading / end of book) comes after the rows: when it is the
+        // last one visible, the reader is at the end and must load the next section
+        for (paragraphs in listOf(false, true)) {
+            val r = ReaderRows.build(items, paragraphs)
+            assertEquals(5, r.lastItemOf(r.rows.size))
+            assertEquals(5, r.firstItemOf(r.rows.size))
+            assertEquals(0, r.firstItemOf(-1))
+        }
+    }
+
+    @Test
     fun rangeLabels() {
         assertEquals("Genesis 1:30-31", rangeLabel(seg("Genesis 1:30"), seg("Genesis 1:31"), hebrew = false))
         assertEquals("Genesis 1:31-2:2", rangeLabel(seg("Genesis 1:31"), seg("Genesis 2:2"), hebrew = false))

@@ -22,13 +22,12 @@
     <string name="contents">תוכן</string>
     <string name="parashot">פרשות</string>
     <string name="open">פתיחה</string>
-    <string name="versions">גרסאות (%1$d)</string>
+    <string name="editions">מהדורות</string>
 
     <!-- reader -->
     <string name="offline_copy">עותק לא מקוון</string>
     <string name="display_settings">הגדרות תצוגה</string>
     <string name="end_of_book">סוף %1$s</string>
-    <string name="has_notes">יש הערות</string>
     <string name="bookmark">הוספת סימנייה</string>
     <string name="remove_bookmark">הסרת סימנייה</string>
     <string name="copy_with_citation">העתקה עם מראה מקום</string>
@@ -60,6 +59,16 @@
     <string name="search_offline">אין חיבור: מחפש רק בספרים שהורדו</string>
     <string name="search_lang_he">עברית</string>
     <string name="search_lang_en">אנגלית</string>
+    <string name="search_scope_all">כל הספרייה</string>
+    <string name="search_scope_title">חיפוש ב</string>
+    <string name="search_scope_more">+ עוד %1$d</string>
+    <string name="search_scope_downloaded">ספרים שהורדו</string>
+    <string name="search_scope_clear">כל הספרייה</string>
+    <string name="search_scope_filter">סינון לפי שם</string>
+    <string name="search_scope_done">סיום</string>
+    <string name="search_all_forms">כל הצורות</string>
+    <string name="search_match_prefix">עם אותיות שימוש</string>
+    <string name="search_match_form">צורה אחרת</string>
 
     <!-- saved -->
     <string name="bookmarks">סימניות</string>
@@ -90,6 +99,7 @@
     <string name="downloads">הורדות</string>
     <string name="download_size">הורדה לקריאה ללא רשת · %1$s</string>
     <string name="downloading">מוריד %1$s מתוך %2$s</string>
+    <string name="verifying">מאמת…</string>
     <string name="downloaded_size">הורד · %1$s</string>
     <string name="update_available">יש עדכון</string>
     <string name="update">עדכון</string>
@@ -127,4 +137,41 @@
     <string name="haftarah_custom">הפטרה</string>
     <string name="ashkenazi">אשכנז</string>
     <string name="sephardi">ספרד</string>
+    <string name="download">הורדה</string>
+    <string name="downloaded">הורד</string>
+    <string name="download_all">הורדת הכול</string>
+    <string name="download_all_of">הורדת כל %1$s</string>
+    <string name="download_confirm">%1$d ספרים, %2$s.</string>
+    <string name="whole_library">הספרייה</string>
+    <string name="clear">ניקוי</string>
+    <string name="section_interface">ממשק</string>
+    <string name="section_reading">קריאה</string>
+    <string name="nav_labels">תוויות בסרגל הניווט</string>
+    <string name="nav_labels_body">כבוי: סמלים בלבד, בסרגל נמוך יותר</string>
+    <string name="font_hebrew">גופן עברי</string>
+    <string name="font_english">גופן אנגלי</string>
+    <string name="font_default">ברירת מחדל (סריף)</string>
+    <string name="no_connections_body">עדיין אין קישורים לפסוק הזה.</string>
+    <string name="no_book_here">אין %1$s על הפסוק הזה</string>
+    <string name="no_book_here_body">המשיכו לקרוא: הוא יחזור בפסוק הבא שיש בו.</string>
+    <string name="offline_title">אין חיבור לאינטרנט</string>
+    <string name="offline_body">ספרים שהורדו עדיין נפתחים. התחברו כדי לקרוא את כל השאר.</string>
+    <string name="server_down_title">אין חיבור לשרת</string>
+    <string name="server_down_body">ייתכן שהוא לא זמין כרגע. נסו שוב בעוד רגע.</string>
+    <string name="error_title">משהו השתבש</string>
+    <string name="search_none_body">נסו מילים אחרות, את כל הצורות או היקף רחב יותר.</string>
+    <string name="delete">מחיקה</string>
+    <string name="delete_download_title">למחוק את ההורדה?</string>
+    <string name="delete_download_body">%1$s יימחק מהטלפון. אפשר להוריד אותו שוב; עד אז, כדי לקרוא בו צריך אינטרנט.</string>
+    <string name="download_extra">ההורדה הראשונה מביאה גם %1$s, פעם אחת: קישורים וחיפוש ללא רשת.</string>
+    <string name="delete_downloaded_n">מחיקת %1$d הספרים שהורדו</string>
+    <string name="delete_group_title">למחוק את ההורדות?</string>
+    <string name="delete_group_body">%1$d ספרים (%2$s) ב%3$s יימחקו מהטלפון. אפשר להוריד אותם שוב; עד אז, כדי לקרוא בהם צריך אינטרנט.</string>
+    <string name="downloaded_books">%1$d ספרים הורדו · %2$s</string>
+    <string name="delete_all_downloads">מחיקת כל ההורדות</string>
+    <string name="delete_all_body">כל %1$d הספרים שהורדו (%2$s) יימחקו מהטלפון. אפשר להוריד אותם שוב; עד אז, כדי לקרוא צריך אינטרנט.</string>
+    <!-- download notification -->
+    <string name="notification_channel_downloads">הורדות</string>
+    <string name="notification_downloading">מוריד ספרים</string>
+    <string name="notification_books_done">%1$d מתוך %2$d ספרים</string>
 </resources>

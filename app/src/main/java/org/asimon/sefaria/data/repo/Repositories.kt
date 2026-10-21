@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.repo
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -15,6 +17,8 @@ import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.local.HistoryEntry
 import org.asimon.sefaria.data.local.OfflineSource
 import org.asimon.sefaria.data.local.ReadingPosition
+import org.asimon.sefaria.data.local.LibraryDao
+import org.asimon.sefaria.data.local.Synced
 import org.asimon.sefaria.data.local.UserDao
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
@@ -26,7 +30,6 @@ import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TextDto
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.remote.VersionDto
-import org.asimon.sefaria.data.remote.VersionSelection
 
 /** A loaded value, or an error to show. [offline] marks a cached value served because the network failed. */
 sealed interface Load<out T> {
@@ -90,22 +93,34 @@ class CachedFetcher(
         decode: suspend (String) -> T,
         book: String? = null, // the book the response belongs to, if it may be downloaded
         fetch: suspend (etag: String?) -> ApiResult<T>,
+    ): Load<T> = try {
+        load(key, decode, book, fetch)
+    } catch (e: IllegalArgumentException) { // SerializationException: a stored response this app can't read
+        Log.w("CachedFetcher", "cannot decode $key: ${e.message}")
+        Load.Err(AppError.BadResponse(e.message ?: "invalid JSON"))
+    }
+
+    private suspend fun <T> load(
+        key: String,
+        decode: suspend (String) -> T,
+        book: String?,
+        fetch: suspend (etag: String?) -> ApiResult<T>,
     ): Load<T> {
         if (book != null) offline.get(book, key)?.let { return Load.Ok(decode(it)) }
-        val cached = cache.get(key)
+        val cached = safe { cache.get(key) }
         val current = buildInfo.current
         if (cached != null && (current == null || cached.etag?.trim('"') == current)) {
-            cache.touch(key, now())
+            safe { cache.touch(key, now()) }
             return Load.Ok(decode(cached.json))
         }
         return when (val r = fetch(cached?.etag)) {
             is ApiResult.Ok -> {
-                cache.put(CacheEntry(key, r.raw, r.etag ?: current, now(), now()))
+                safe { cache.put(CacheEntry(key, r.raw, r.etag ?: current, now(), now())) }
                 Load.Ok(r.value)
             }
             ApiResult.NotModified -> {
                 cached!!
-                cache.put(cached.copy(etag = current ?: cached.etag, fetchedAt = now(), lastAccess = now()))
+                safe { cache.put(cached.copy(etag = current ?: cached.etag, fetchedAt = now(), lastAccess = now())) }
                 Load.Ok(decode(cached.json))
             }
             is ApiResult.Failure ->
@@ -113,24 +128,57 @@ class CachedFetcher(
                 else Load.Err(r.error.toAppError())
         }
     }
+
+    // The cache lives in the cache folder, which the system or the user may empty while the app
+    // runs: then it can't be read or written until the next start, and requests go to the server.
+    private suspend fun <T> safe(f: suspend () -> T): T? = try {
+        f()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w("CachedFetcher", "cache unavailable: ${e.message}")
+        null
+    }
 }
 
-class LibraryRepository(private val api: Api, private val fetcher: CachedFetcher) {
+/**
+ * The library's category tree and books. The tree is kept in the toc_node table (not the
+ * response cache) so it is there offline and after the cache is cleared; it is fetched again
+ * when the server's build changes.
+ */
+class LibraryRepository(private val api: Api, private val fetcher: CachedFetcher, private val dao: LibraryDao) {
     private val books = object : LinkedHashMap<String, Book>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Book>?) = size > 24
     }
     private val lock = Mutex()
+    private val tocLock = Mutex()
 
     suspend fun refreshBuild() = fetcher.refreshBuild()
 
-    @Volatile private var tocMemo: Pair<String?, TocDto>? = null // (build, toc)
+    @Volatile private var tocMemo: TocDto? = null // as last read or fetched; its buildId is the build it came from
 
-    /** The category tree; decoded once per build since every library screen needs it. */
-    suspend fun toc(): Load<TocDto> {
-        tocMemo?.let { (b, toc) -> if (b == fetcher.build) return Load.Ok(toc) }
-        val r = fetcher.get("toc", { withContext(Dispatchers.Default) { SefariaJson.decodeFromString(TocDto.serializer(), it) } }) { api.toc(it) }
-        if (r is Load.Ok && !r.offline) tocMemo = fetcher.build to r.value
-        return r
+    /** The category tree: from memory or the table while the build is the same, else from the server. */
+    suspend fun toc(): Load<TocDto> = tocLock.withLock {
+        val build = fetcher.build
+        val have = tocMemo ?: dao.toc()?.also { tocMemo = it }
+        if (have != null && (build == null || have.buildId == build)) return@withLock Load.Ok(have)
+        when (val r = api.toc(have?.buildId?.let { "\"$it\"" })) {
+            is ApiResult.Ok -> {
+                val toc = r.value.let { if (it.buildId.isEmpty()) it.copy(buildId = r.etag?.trim('"') ?: build.orEmpty()) else it }
+                tocMemo = toc
+                runCatching { dao.putToc(toc) }
+                Load.Ok(toc)
+            }
+            ApiResult.NotModified -> {
+                // the same tree in the new build
+                val toc = if (build == null) have!! else have!!.copy(buildId = build).also { dao.stamp(Synced(Synced.TOC, build)) }
+                tocMemo = toc
+                Load.Ok(toc)
+            }
+            is ApiResult.Failure ->
+                if (have != null && r.error !is ApiError.Http) Load.Ok(have, offline = true)
+                else Load.Err(r.error.toAppError())
+        }
     }
 
     /** A book's schema, versions and metadata; decoded books stay in memory (small LRU). */
@@ -166,11 +214,11 @@ data class SectionText(
 }
 
 class TextRepository(private val api: Api, private val fetcher: CachedFetcher, private val offline: OfflineLibrary? = null) {
-    /** Loads exactly one section (the paging unit); a downloaded book's default versions come from the library. */
-    suspend fun section(section: Ref, versions: VersionSelection = VersionSelection()): Load<SectionText> {
-        if (versions.he == null && versions.en == null) offline?.section(section)?.let { return Load.Ok(it) }
+    /** Loads exactly one section (the paging unit) in the book's default versions; a downloaded book's come from the library. */
+    suspend fun section(section: Ref): Load<SectionText> {
+        offline?.section(section)?.let { return Load.Ok(it) }
         val ref = section.url()
-        return fetcher.get("text:$ref|${versions.key}", ::decode, book = section.book.title) { etag -> api.text(ref, versions, etag) }
+        return fetcher.get("text:$ref", ::decode, book = section.book.title) { etag -> api.text(ref, etag) }
             .map { t ->
                 val s = t.sections.firstOrNull()
                 SectionText(s?.ref ?: ref, s?.heRef ?: t.heRef, s?.first ?: 1, s?.he.orEmpty(), s?.en.orEmpty(), t.versions, s?.linkCounts.orEmpty())
@@ -230,12 +278,12 @@ class UserDataRepository(private val dao: UserDao, private val now: () -> Long =
      * Records where the reader is. Consecutive reading of one book within [SESSION_MS]
      * updates a single history row instead of adding one per scroll.
      */
-    suspend fun recordPosition(ref: Ref, trail: List<String> = emptyList()) {
+    suspend fun recordPosition(ref: Ref, trail: List<TrailStep> = emptyList()) {
         val t = now()
         dao.putPosition(ReadingPosition(ref.book.title, ref.url(), t))
         val last = dao.lastVisit()
         val id = if (last != null && last.book == ref.book.title && t - last.visitedAt < SESSION_MS) last.id else 0
-        dao.putHistory(HistoryEntry(id, ref.book.title, ref.url(), ref.human(), ref.hebrew(), t, TrailStep.join(trail)))
+        dao.putHistory(HistoryEntry(id, ref.book.title, ref.url(), ref.human(), ref.hebrew(), t, trail))
     }
 
     suspend fun lastPosition(book: String): ReadingPosition? = dao.position(book)

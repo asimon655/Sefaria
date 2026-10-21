@@ -1,8 +1,8 @@
 package org.asimon.sefaria.core.text
 
 /**
- * Search normalisation and query parsing. Mirrors the server's internal/search, so a pack's
- * offline index and the server's index agree; checked against the same normalize.tsv vectors.
+ * Search normalisation and query parsing. Mirrors the server's internal/search, so offline
+ * search and the server's index agree; checked against the same normalize.tsv vectors.
  */
 object SearchText {
     /** One search term: a token or a phrase, the last token optionally a prefix. */
@@ -99,6 +99,11 @@ object SearchText {
 
     fun isHebrew(q: String): Boolean = q.any { it in 'א'..'ת' }
 
+    /** A token with its Latin diacritics removed (é → e), as the index's tokenizer folds them. */
+    fun fold(s: String): String =
+        if (s.none { it.code in 0xC0..0x24F }) s
+        else java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).filter { Character.getType(it) != Character.NON_SPACING_MARK.toInt() }
+
     const val SNIPPET_WORDS = 40
 
     /**
@@ -109,9 +114,12 @@ object SearchText {
         val exact = HashSet<String>()
         val prefixes = mutableListOf<String>()
         for (t in terms) t.tokens.forEachIndexed { i, tok -> if (t.prefix && i == t.tokens.lastIndex) prefixes += tok else exact += tok }
-        fun match(word: String) = normalize(word).split(' ').any { tok ->
-            tok.isNotEmpty() && (tok in exact || prefixes.any { tok.startsWith(it) })
-        }
+        return snippetWith(text) { tok -> tok in exact || prefixes.any { tok.startsWith(it) } }
+    }
+
+    /** [snippet] with the matching tokens decided by [matches] (a normalised token). */
+    fun snippetWith(text: String, matches: (String) -> Boolean): String {
+        fun match(word: String) = normalize(word).split(' ').any { tok -> tok.isNotEmpty() && matches(tok) }
         val words = fields(plain(text))
         var first = -1
         for (i in words.indices) if (match(words[i])) {

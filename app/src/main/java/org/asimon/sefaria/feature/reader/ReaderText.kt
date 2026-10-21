@@ -60,8 +60,11 @@ class ReaderRows(
     private val lastItem: IntArray,
 ) {
     fun rowOf(key: String?): Int? = key?.let { rowOfKey[it] }
-    fun firstItemOf(row: Int) = firstItem.getOrElse(row) { 0 }
-    fun lastItemOf(row: Int) = lastItem.getOrElse(row) { firstItemOf(row) }
+    // Rows past the end (the list's footer: loading, retry, end of book) stand for the last
+    // item, not the first: mapping the footer to item 0 kept the next section from loading
+    // when a jump landed at the end of a chapter.
+    fun firstItemOf(row: Int) = firstItem.getOrElse(row) { if (row < 0) 0 else lastItem.lastOrNull() ?: 0 }
+    fun lastItemOf(row: Int) = lastItem.getOrElse(row) { if (row < 0) 0 else lastItem.lastOrNull() ?: 0 }
 
     companion object {
         fun build(items: List<ReaderItem>, paragraphs: Boolean): ReaderRows {
@@ -114,6 +117,9 @@ class ParagraphLayout(val layout: TextLayoutResult, val ranges: List<IntRange>, 
     }
 }
 
+/** Space above and below a paragraph: a segment's top in its row is this plus [ParagraphLayout.topOf]. */
+val ParagraphPad = 6.dp
+
 /**
  * A section as one justified paragraph with small verse numbers. Tapping selects the verse
  * under the finger, long-press starts a range selection; [mark] colours a verse's background.
@@ -160,7 +166,7 @@ fun ParagraphText(
         onTextLayout = { l -> ParagraphLayout(l, ranges, row.segments).also { laid.value = it; onLayout(it) } },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = ParagraphPad)
             .pointerInput(row.key, ranges) {
                 detectTapGestures(
                     onTap = { pos -> laid.value?.segmentAt(pos)?.let(tap) },

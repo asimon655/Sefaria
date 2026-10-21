@@ -2,49 +2,8 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "0905b1973549a0a6d65b9b137493126b",
+    "identityHash": "d291bbc6a0bf73a9bb38b6bbd34be538",
     "entities": [
-      {
-        "tableName": "cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `json` TEXT NOT NULL, `etag` TEXT, `fetched_at` INTEGER NOT NULL, `last_access` INTEGER NOT NULL, PRIMARY KEY(`key`))",
-        "fields": [
-          {
-            "fieldPath": "key",
-            "columnName": "key",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "json",
-            "columnName": "json",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "etag",
-            "columnName": "etag",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "fetchedAt",
-            "columnName": "fetched_at",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "lastAccess",
-            "columnName": "last_access",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "key"
-          ]
-        }
-      },
       {
         "tableName": "bookmark",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `book` TEXT NOT NULL, `ref` TEXT NOT NULL, `label` TEXT NOT NULL, `he_label` TEXT NOT NULL, `preview` TEXT NOT NULL, `created_at` INTEGER NOT NULL)",
@@ -112,7 +71,7 @@
       },
       {
         "tableName": "history",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `book` TEXT NOT NULL, `ref` TEXT NOT NULL, `label` TEXT NOT NULL, `he_label` TEXT NOT NULL, `visited_at` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `book` TEXT NOT NULL, `ref` TEXT NOT NULL, `label` TEXT NOT NULL, `he_label` TEXT NOT NULL, `visited_at` INTEGER NOT NULL, `trail` TEXT NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -148,6 +107,12 @@
             "fieldPath": "visitedAt",
             "columnName": "visited_at",
             "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trail",
+            "columnName": "trail",
+            "affinity": "TEXT",
             "notNull": true
           }
         ],
@@ -198,11 +163,243 @@
             "book"
           ]
         }
+      },
+      {
+        "tableName": "listed_file",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file` TEXT NOT NULL, `kind` TEXT NOT NULL, `book` TEXT NOT NULL, `he` TEXT NOT NULL, `bytes` INTEGER NOT NULL, `index_file` TEXT NOT NULL, `index_bytes` INTEGER NOT NULL, PRIMARY KEY(`file`))",
+        "fields": [
+          {
+            "fieldPath": "file",
+            "columnName": "file",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "book",
+            "columnName": "book",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "he",
+            "columnName": "he",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bytes",
+            "columnName": "bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "index",
+            "columnName": "index_file",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexBytes",
+            "columnName": "index_bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_listed_file_book",
+            "unique": false,
+            "columnNames": [
+              "book"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_listed_file_book` ON `${TABLE_NAME}` (`book`)"
+          }
+        ]
+      },
+      {
+        "tableName": "installed_file",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file` TEXT NOT NULL, `kind` TEXT NOT NULL, `book` TEXT NOT NULL, `he` TEXT NOT NULL, `bytes` INTEGER NOT NULL, `sfb` TEXT NOT NULL, `norm` INTEGER NOT NULL, PRIMARY KEY(`file`))",
+        "fields": [
+          {
+            "fieldPath": "file",
+            "columnName": "file",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "book",
+            "columnName": "book",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "he",
+            "columnName": "he",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bytes",
+            "columnName": "bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sfb",
+            "columnName": "sfb",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "norm",
+            "columnName": "norm",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_installed_file_book",
+            "unique": false,
+            "columnNames": [
+              "book"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_installed_file_book` ON `${TABLE_NAME}` (`book`)"
+          }
+        ]
+      },
+      {
+        "tableName": "synced",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`what` TEXT NOT NULL, `build` TEXT NOT NULL, PRIMARY KEY(`what`))",
+        "fields": [
+          {
+            "fieldPath": "what",
+            "columnName": "what",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "build",
+            "columnName": "build",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "what"
+          ]
+        }
+      },
+      {
+        "tableName": "toc_node",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `parent` INTEGER, `kind` TEXT NOT NULL, `en` TEXT NOT NULL, `he` TEXT NOT NULL, `title` TEXT NOT NULL, `desc_en` TEXT NOT NULL, `desc_he` TEXT NOT NULL, `short_en` TEXT NOT NULL, `short_he` TEXT NOT NULL, `dependent` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parent",
+            "columnName": "parent",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "en",
+            "columnName": "en",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "he",
+            "columnName": "he",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "descEn",
+            "columnName": "desc_en",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "descHe",
+            "columnName": "desc_he",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shortEn",
+            "columnName": "short_en",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shortHe",
+            "columnName": "short_he",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dependent",
+            "columnName": "dependent",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0905b1973549a0a6d65b9b137493126b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd291bbc6a0bf73a9bb38b6bbd34be538')"
     ]
   }
 }

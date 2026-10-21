@@ -5,7 +5,8 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
 import okio.Buffer
-import org.asimon.sefaria.data.remote.LibraryFileDto
+import org.asimon.sefaria.data.local.FileKind
+import org.asimon.sefaria.data.local.ListedFile
 import org.asimon.sefaria.data.repo.AppError
 import org.asimon.sefaria.data.repo.FileDownloader
 import org.junit.After
@@ -24,7 +25,7 @@ class FileDownloaderTest {
     private val server = MockWebServer()
     private lateinit var dl: FileDownloader
     private val data = ByteArray(300_000) { (it * 7 % 251).toByte() }
-    private val file = LibraryFileDto("Genesis", file = sha(data) + ".sfb", bytes = data.size.toLong())
+    private val file = ListedFile(sha(data) + ".sfb", FileKind.BOOK, "Genesis", bytes = data.size.toLong())
     private val path = "/v1/library/" + file.file
 
     @Before
@@ -74,6 +75,16 @@ class FileDownloaderTest {
         val part = tmp.root.resolve("g.part")
         server.enqueue(body(data.copyOf().also { it[5] = 0x55 }))
         assertEquals(AppError.BadResponse("checksum mismatch for Genesis"), dl.download(path, file, part))
+        assertFalse(part.exists())
+    }
+
+    @Test
+    fun fetchDoesNotVerify() = runTest {
+        val part = tmp.root.resolve("g.part")
+        server.enqueue(body(data.copyOf().also { it[5] = 0x55 }))
+        assertNull(dl.fetch(path, file, part)) // the bytes came: checking them is verify's job
+        assertEquals(data.size.toLong(), part.length())
+        assertEquals(AppError.BadResponse("checksum mismatch for Genesis"), dl.verify(file, part))
         assertFalse(part.exists())
     }
 

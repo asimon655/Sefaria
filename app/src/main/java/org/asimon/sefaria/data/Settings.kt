@@ -35,6 +35,13 @@ data class Prefs(
     val onboarded: Boolean = true, // until the store is read; then the stored value
     val diaspora: Boolean = defaultDiaspora(),
     val sephardi: Boolean = false, // haftarah custom for Today
+    /** Tab names under the navigation icons; off, icons only in a shorter bar. */
+    val navLabels: Boolean = true,
+    /** Whether the notification permission was asked for (once, at the first download). */
+    val notificationsAsked: Boolean = true, // until the store is read; then the stored value
+    /** Fonts of the texts (not the interface): a device font's family name (ui/Fonts.kt), or "" for the default serif. */
+    val heFont: String = "",
+    val enFont: String = "",
 )
 
 /** User preferences (DataStore). [prefs] is hot so composables and view models read it synchronously. */
@@ -53,6 +60,10 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
         val onboarded = booleanPreferencesKey("onboarded")
         val diaspora = booleanPreferencesKey("diaspora")
         val sephardi = booleanPreferencesKey("sephardi")
+        val navLabels = booleanPreferencesKey("nav_labels")
+        val notificationsAsked = booleanPreferencesKey("notifications_asked")
+        val heFont = stringPreferencesKey("he_font")
+        val enFont = stringPreferencesKey("en_font")
     }
 
     val prefs: StateFlow<Prefs> = store.data.map { p ->
@@ -70,6 +81,10 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
             onboarded = p[K.onboarded] ?: false,
             diaspora = p[K.diaspora] ?: defaultDiaspora(),
             sephardi = p[K.sephardi] ?: false,
+            navLabels = p[K.navLabels] ?: true,
+            notificationsAsked = p[K.notificationsAsked] ?: false,
+            heFont = p[K.heFont] ?: "",
+            enFont = p[K.enFont] ?: "",
         )
     }.stateIn(scope, SharingStarted.Eagerly, Prefs(defaultUrl))
 
@@ -90,6 +105,10 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
     suspend fun setOnboarded() = store.edit { it[K.onboarded] = true }
     suspend fun setDiaspora(v: Boolean) = store.edit { it[K.diaspora] = v }
     suspend fun setSephardi(v: Boolean) = store.edit { it[K.sephardi] = v }
+    suspend fun setNavLabels(v: Boolean) = store.edit { it[K.navLabels] = v }
+    suspend fun setNotificationsAsked() = store.edit { it[K.notificationsAsked] = true }
+    suspend fun setHeFont(v: String) = store.edit { it[K.heFont] = v }
+    suspend fun setEnFont(v: String) = store.edit { it[K.enFont] = v }
 
     /** Pins or unpins a commentator (by collective title). */
     suspend fun togglePin(key: String) = store.edit { p ->

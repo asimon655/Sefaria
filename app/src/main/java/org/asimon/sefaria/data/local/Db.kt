@@ -1,6 +1,5 @@
 package org.asimon.sefaria.data.local
 
-import androidx.room.AutoMigration
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -10,11 +9,14 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
+import androidx.room.TypeConverter
+import androidx.room.TypeConverters
 import kotlinx.coroutines.flow.Flow
+import org.asimon.sefaria.core.TrailStep
 
 /**
- * Response cache: server JSON stored verbatim, keyed by request
- * ("toc", "book:Genesis", "text:Genesis.1|he=d,en=d"). [etag] is the build id that
+ * Response cache ([CacheDb], in the app's cache folder): server JSON stored verbatim, keyed by request
+ * ("book:Genesis", "text:Genesis.1|he=d,en=d"). [etag] is the build id that
  * produced it, so a new build revalidates lazily with If-None-Match.
  */
 @Entity(tableName = "cache")
@@ -45,8 +47,8 @@ data class HistoryEntry(
     val label: String,
     @ColumnInfo(name = "he_label") val heLabel: String,
     @ColumnInfo(name = "visited_at") val visitedAt: Long,
-    /** The source trail that led here (see core/Trail.kt), "" if none. */
-    @ColumnInfo(defaultValue = "") val trail: String = "",
+    /** The source trail that led here (core/Trail.kt), stored as JSON. */
+    val trail: List<TrailStep> = emptyList(),
 )
 
 @Entity(tableName = "reading_position")
@@ -123,12 +125,40 @@ interface UserDao {
     suspend fun putPosition(p: ReadingPosition)
 }
 
+/**
+ * The app's own data (files/databases/sefaria.db): the user's bookmarks, history and reading
+ * positions, and the library's (LibraryDao): the server's listing, the downloaded files and
+ * the category tree.
+ */
 @Database(
-    entities = [CacheEntry::class, Bookmark::class, HistoryEntry::class, ReadingPosition::class],
-    version = 2,
-    autoMigrations = [AutoMigration(from = 1, to = 2)], // history.trail
+    entities = [
+        Bookmark::class, HistoryEntry::class, ReadingPosition::class,
+        ListedFile::class, InstalledFile::class, Synced::class, TocNode::class,
+    ],
+    version = 1,
 )
+@TypeConverters(Converters::class)
 abstract class SefariaDb : RoomDatabase() {
-    abstract fun cache(): CacheDao
     abstract fun user(): UserDao
+    abstract fun library(): LibraryDao
+}
+
+/** Column types Room doesn't know. */
+class Converters {
+    @TypeConverter fun trailToColumn(t: List<TrailStep>): String = TrailStep.encode(t)
+    @TypeConverter fun trailFromColumn(s: String): List<TrailStep> = TrailStep.decode(s)
+}
+
+/**
+ * The response cache, a database of its own in the app's cache folder: the system may delete it
+ * when storage runs low, and "Clear cache" in the app's info deletes it. Losing it only costs
+ * requests, so it is rebuilt rather than migrated.
+ */
+@Database(entities = [CacheEntry::class], version = 1)
+abstract class CacheDb : RoomDatabase() {
+    abstract fun cache(): CacheDao
+
+    companion object {
+        const val FILE = "responses.db"
+    }
 }

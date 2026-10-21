@@ -54,7 +54,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import org.asimon.sefaria.R
 import org.asimon.sefaria.ReaderRoute
-import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.data.local.HistoryEntry
 import org.asimon.sefaria.data.repo.UserDataRepository
 import org.asimon.sefaria.feature.search.SearchBox
@@ -167,7 +166,7 @@ private fun LazyListScope.today(s: TodayState, onOpen: (Any) -> Unit, retry: () 
         null -> item(key = "today-loading") {
             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
-        is Load.Err -> item(key = "today-error") { ErrorMessage(day.error.text(), onRetry = retry) }
+        is Load.Err -> item(key = "today-error") { ErrorMessage(day.error, onRetry = retry, compact = true) }
         is Load.Ok -> items(day.value.items, key = { "today-" + it.id }) { it ->
             ListItem(
                 overlineContent = { Text(pick(it.title.en, it.title.he)) },
@@ -180,7 +179,7 @@ private fun LazyListScope.today(s: TodayState, onOpen: (Any) -> Unit, retry: () 
 }
 
 /** Reopens a history entry where it was left, with the trail that led there. */
-fun resume(h: HistoryEntry) = ReaderRoute(h.book, h.ref, highlight = false, trail = TrailStep.split(h.trail))
+fun resume(h: HistoryEntry) = ReaderRoute(h.book, h.ref, highlight = false, trail = h.trail)
 
 @Composable
 private fun ContinueCard(h: HistoryEntry, onClick: () -> Unit) {
@@ -192,7 +191,7 @@ private fun ContinueCard(h: HistoryEntry, onClick: () -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(R.string.continue_reading), style = MaterialTheme.typography.labelLarge)
             Text(pick(h.label, h.heLabel), style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val trail = TrailStep.decodeAll(TrailStep.split(h.trail))
+            val trail = h.trail
             if (trail.isNotEmpty()) Text(
                 trailText(trail.map { pick(it.en, it.he) }),
                 style = MaterialTheme.typography.bodySmall,

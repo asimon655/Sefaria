@@ -40,11 +40,8 @@ import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.repo.UserDataRepository
 import org.asimon.sefaria.ui.components.pick
-import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.feature.home.resume
 import org.asimon.sefaria.feature.home.trailText
-import org.asimon.sefaria.feature.downloads.DownloadsList
-import org.asimon.sefaria.feature.downloads.DownloadsViewModel
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
@@ -60,7 +57,7 @@ class SavedViewModel @Inject constructor(private val user: UserDataRepository, s
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewModel(), dvm: DownloadsViewModel = hiltViewModel()) {
+fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewModel()) {
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
@@ -82,11 +79,6 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.bookmarks)) })
                 Tab(tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.history)) })
-                Tab(tab == 2, onClick = { tab = 2 }, text = { Text(stringResource(R.string.downloads)) })
-            }
-            if (tab == 2) {
-                DownloadsList(onOpen, dvm)
-                return@Column
             }
             val empty = if (tab == 0) bookmarks.isEmpty() else history.isEmpty()
             if (empty) Text(
@@ -106,7 +98,7 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
                     ListItem(
                         headlineContent = { Text(pick(h.label, h.heLabel)) },
                         supportingContent = {
-                            val trail = TrailStep.decodeAll(TrailStep.split(h.trail))
+                            val trail = h.trail
                             Column {
                                 if (trail.isNotEmpty()) Text(
                                     trailText(trail.map { pick(it.en, it.he) }),

@@ -6,7 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
+import okhttp3.Call
 import okhttp3.Request
 import java.io.IOException
 
@@ -30,7 +30,7 @@ sealed interface ApiError {
  * Settings without restarting. Conditional requests use the cached ETag (the build id).
  */
 class Api(
-    private val client: OkHttpClient,
+    private val client: Call.Factory,
     private val baseUrl: suspend () -> String,
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
@@ -41,13 +41,9 @@ class Api(
     suspend fun book(title: String, etag: String? = null) =
         get("/v1/books/" + segment(title), BookDto.serializer(), etag)
 
-    /** Always fetches both languages so switching layout needs no request. */
-    suspend fun text(ref: String, versions: VersionSelection = VersionSelection(), etag: String? = null) =
-        get("/v1/text/" + segment(ref), TextDto.serializer(), etag, buildMap {
-            put("lang", "he,en")
-            versions.he?.let { put("he", it.toString()) }
-            versions.en?.let { put("en", it.toString()) }
-        })
+    /** A section in the book's default versions; always both languages so switching layout needs no request. */
+    suspend fun text(ref: String, etag: String? = null) =
+        get("/v1/text/" + segment(ref), TextDto.serializer(), etag, mapOf("lang" to "he,en"))
 
     /** Connections of a ref; [book] limits them to one book, [withText] inlines both languages. */
     suspend fun links(ref: String, withText: Boolean = false, book: String? = null, etag: String? = null) =
@@ -73,13 +69,17 @@ class Api(
 
     /** One page of full-text hits in reading order; pass the previous page's [SearchDto.next] as [cursor]. */
     suspend fun search(q: String, filter: SearchFilter = SearchFilter(), cursor: String? = null, limit: Int = 20) =
-        get("/v1/search", SearchDto.serializer(), query = buildMap {
-            put("q", q)
-            put("limit", limit.toString())
-            filter.lang?.let { put("lang", it) }
-            filter.book?.let { put("book", it) }
-            filter.category?.let { put("category", it) }
-            cursor?.let { put("cursor", it) }
+        get("/v1/search", SearchDto.serializer(), params = buildList {
+            add("q" to q)
+            add("limit" to limit.toString())
+            filter.lang?.let { add("lang" to it) }
+            filter.books.forEach { add("book" to it) }
+            filter.categories.forEach { add("category" to it) }
+            if (!filter.expand) add("expand" to "0")
+            if (filter.allForms) add("forms" to "all")
+            filter.drop.sorted().forEach { add("drop" to it) }
+            filter.order?.let { add("order" to it) }
+            cursor?.let { add("cursor" to it) }
         })
 
     /** The day's learning; [date] is the reader's local date (YYYY-MM-DD). */
@@ -93,10 +93,11 @@ class Api(
         serializer: KSerializer<T>,
         etag: String? = null,
         query: Map<String, String> = emptyMap(),
+        params: List<Pair<String, String>> = query.toList(), // repeated keys allowed
     ): ApiResult<T> = withContext(io) {
         val base = baseUrl()
         val url = (base.trimEnd('/') + path).toHttpUrlOrNull()?.newBuilder()?.apply {
-            query.forEach { (k, v) -> addQueryParameter(k, v) }
+            params.forEach { (k, v) -> addQueryParameter(k, v) }
         }?.build() ?: return@withContext ApiResult.Failure(ApiError.BadResponse("bad server URL $base"))
         val request = Request.Builder().url(url).apply {
             if (etag != null) header("If-None-Match", etag)
@@ -131,10 +132,22 @@ class Api(
 }
 
 /** Full-text search filters; null means any. [category] is a path of English names joined by "/". */
-data class SearchFilter(val lang: String? = null, val book: String? = null, val category: String? = null)
-
-/** Version ids per language; null means the book's default version. */
-data class VersionSelection(val he: Int? = null, val en: Int? = null) {
-    /** Cache key part, e.g. "he=1,en=d". */
-    val key get() = "he=${he ?: "d"},en=${en ?: "d"}"
+/**
+ * What a search covers and how it matches (SERVER_SPEC §6.6a). The scope is the union of
+ * [books] and [categories] ("Tanakh/Torah"); both empty means the whole library. [expand]
+ * false matches exact words only, [allForms] adds the other forms of the words' headwords,
+ * [drop] leaves out forms the user turned off, and [order] "library" asks for the two-tier
+ * library order the phone uses offline instead of the server's ranking.
+ */
+data class SearchFilter(
+    val lang: String? = null,
+    val books: List<String> = emptyList(),
+    val categories: List<String> = emptyList(),
+    val expand: Boolean = true,
+    val allForms: Boolean = false,
+    val drop: Set<String> = emptySet(),
+    val order: String? = null,
+) {
+    val scoped get() = books.isNotEmpty() || categories.isNotEmpty()
 }
+

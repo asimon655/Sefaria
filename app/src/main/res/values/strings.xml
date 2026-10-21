@@ -22,13 +22,12 @@
     <string name="contents">Contents</string>
     <string name="parashot">Parashot</string>
     <string name="open">Open</string>
-    <string name="versions">Versions (%1$d)</string>
+    <string name="editions">Editions</string>
 
     <!-- reader -->
     <string name="offline_copy">Offline copy</string>
     <string name="display_settings">Display settings</string>
     <string name="end_of_book">End of %1$s</string>
-    <string name="has_notes">Has notes</string>
     <string name="bookmark">Bookmark</string>
     <string name="remove_bookmark">Remove bookmark</string>
     <string name="copy_with_citation">Copy with citation</string>
@@ -60,6 +59,16 @@
     <string name="search_offline">Offline: searching downloaded books only</string>
     <string name="search_lang_he">Hebrew</string>
     <string name="search_lang_en">English</string>
+    <string name="search_scope_all">All of the library</string>
+    <string name="search_scope_title">Search in</string>
+    <string name="search_scope_more">+%1$d more</string>
+    <string name="search_scope_downloaded">Downloaded books</string>
+    <string name="search_scope_clear">All of the library</string>
+    <string name="search_scope_filter">Filter by title</string>
+    <string name="search_scope_done">Done</string>
+    <string name="search_all_forms">All forms</string>
+    <string name="search_match_prefix">with prefixes</string>
+    <string name="search_match_form">another form</string>
 
     <!-- saved -->
     <string name="bookmarks">Bookmarks</string>
@@ -90,6 +99,7 @@
     <string name="downloads">Downloads</string>
     <string name="download_size">Download for offline · %1$s</string>
     <string name="downloading">Downloading %1$s of %2$s</string>
+    <string name="verifying">Verifying…</string>
     <string name="downloaded_size">Downloaded · %1$s</string>
     <string name="update_available">Update available</string>
     <string name="update">Update</string>
@@ -127,4 +137,41 @@
     <string name="haftarah_custom">Haftarah</string>
     <string name="ashkenazi">Ashkenazi</string>
     <string name="sephardi">Sephardi</string>
+    <string name="download">Download</string>
+    <string name="downloaded">Downloaded</string>
+    <string name="download_all">Download all</string>
+    <string name="download_all_of">Download all of %1$s</string>
+    <string name="download_confirm">%1$d books, %2$s.</string>
+    <string name="whole_library">the library</string>
+    <string name="clear">Clear</string>
+    <string name="section_interface">Interface</string>
+    <string name="section_reading">Reading</string>
+    <string name="nav_labels">Labels in the navigation bar</string>
+    <string name="nav_labels_body">Off: icons only, in a shorter bar</string>
+    <string name="font_hebrew">Hebrew font</string>
+    <string name="font_english">English font</string>
+    <string name="font_default">Default (serif)</string>
+    <string name="no_connections_body">Nothing links to this verse yet.</string>
+    <string name="no_book_here">No %1$s on this verse</string>
+    <string name="no_book_here_body">Keep reading: it comes back on the next verse that has it.</string>
+    <string name="offline_title">No internet connection</string>
+    <string name="offline_body">Downloaded books still open. Connect to read everything else.</string>
+    <string name="server_down_title">Can\'t reach the server</string>
+    <string name="server_down_body">It may be down for a moment. Try again soon.</string>
+    <string name="error_title">Something went wrong</string>
+    <string name="search_none_body">Try other words, all the forms, or a wider scope.</string>
+    <string name="delete">Delete</string>
+    <string name="delete_download_title">Delete this download?</string>
+    <string name="delete_download_body">%1$s will be removed from this phone. You can download it again; until then, reading it needs the internet.</string>
+    <string name="download_extra">The first download also brings %1$s, once: connections and offline search.</string>
+    <string name="delete_downloaded_n">Delete the %1$d downloaded books</string>
+    <string name="delete_group_title">Delete these downloads?</string>
+    <string name="delete_group_body">%1$d books (%2$s) in %3$s will be removed from this phone. You can download them again; until then, reading them needs the internet.</string>
+    <string name="downloaded_books">%1$d books downloaded · %2$s</string>
+    <string name="delete_all_downloads">Delete all downloads</string>
+    <string name="delete_all_body">All %1$d downloaded books (%2$s) will be removed from this phone. You can download them again; until then, reading needs the internet.</string>
+    <!-- download notification -->
+    <string name="notification_channel_downloads">Downloads</string>
+    <string name="notification_downloading">Downloading books</string>
+    <string name="notification_books_done">%1$d of %2$d books</string>
 </resources>

@@ -8,7 +8,6 @@ import okhttp3.OkHttpClient
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
-import org.asimon.sefaria.data.remote.VersionSelection
 import org.asimon.sefaria.fixture
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -37,13 +36,13 @@ class ApiTest {
     @Test
     fun okWithEtagAndQuery() = runTest {
         server.enqueue(json(fixture("text_Genesis.1.json"), etag = "\"b1\""))
-        val r = api.text("Genesis.1", VersionSelection(he = 1))
+        val r = api.text("Genesis.1")
         assertTrue(r is ApiResult.Ok)
         r as ApiResult.Ok
         assertEquals("\"b1\"", r.etag)
         assertEquals(31, r.value.sections.single().he.size)
         val req = server.takeRequest()
-        assertEquals("/v1/text/Genesis.1?lang=he%2Cen&he=1", req.url.encodedPath + "?" + req.url.encodedQuery)
+        assertEquals("/v1/text/Genesis.1?lang=he%2Cen", req.url.encodedPath + "?" + req.url.encodedQuery)
     }
 
     @Test

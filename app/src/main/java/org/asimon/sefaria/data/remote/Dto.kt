@@ -39,6 +39,8 @@ data class TocNodeDto(
     val desc: Bilingual = Bilingual(),
     val short: Bilingual = Bilingual(),
     val children: List<TocNodeDto> = emptyList(),
+    /** Books only: a commentary or targum (the server's search.IsDependent), searched after the texts. */
+    val dependent: Boolean = false,
 ) {
     val isBook get() = kind == "book"
 }
@@ -58,10 +60,14 @@ data class BookDto(
     val desc: Bilingual = Bilingual(),
     @SerialName("short_desc") val shortDesc: Bilingual = Bilingual(),
     val schema: NodeDto,
-    @SerialName("alt_structs") val altStructs: Map<String, List<AltNodeDto>> = emptyMap(),
+    // A struct with no nodes comes as null ("Daf Yomi": null); coerceInputValues doesn't reach map values.
+    @SerialName("alt_structs") private val altStructsRaw: Map<String, List<AltNodeDto>?> = emptyMap(),
     val slots: Int = 0,
     val versions: List<VersionDto> = emptyList(),
-)
+) {
+    /** The alternate structures that have nodes. */
+    val altStructs: Map<String, List<AltNodeDto>> get() = buildMap { for ((k, v) in altStructsRaw) if (!v.isNullOrEmpty()) put(k, v) }
+}
 
 @Serializable
 data class NodeDto(
@@ -183,10 +189,17 @@ data class CompletionDto(
     val book: String = "",
 )
 
+/** [forms]: each query word's forms that it also matched; [total]: ranked candidates scored (SERVER_SPEC §6.6a). */
 @Serializable
-data class SearchDto(val lang: String = "", val hits: List<SearchHitDto> = emptyList(), val next: String? = null)
+data class SearchDto(
+    val lang: String = "",
+    val hits: List<SearchHitDto> = emptyList(),
+    val forms: Map<String, List<String>> = emptyMap(),
+    val total: Int = 0,
+    val next: String? = null,
+)
 
-/** [snippet] is plain text with the matching words in <b>. */
+/** [snippet] is plain text with the matching words in <b>; [match] is exact, prefix or form. */
 @Serializable
 data class SearchHitDto(
     val ref: String,
@@ -194,6 +207,7 @@ data class SearchHitDto(
     @SerialName("he_ref") val heRef: String = "",
     val book: String = "",
     val snippet: String = "",
+    val match: String = "exact",
 )
 
 /** One day of learning schedules (SERVER_SPEC §6.7). */
@@ -246,6 +260,8 @@ data class LibraryDto(
     val dict: LibraryFileDto,
     val books: List<LibraryFileDto> = emptyList(),
     val links: LibraryFileDto? = null,
+    /** The Hebrew forms table (zlib), for offline search. */
+    val forms: LibraryFileDto? = null,
 )
 
 /**
@@ -258,6 +274,12 @@ data class LibraryFileDto(
     val he: String = "",
     val file: String,
     val bytes: Long,
+    /** A book's index file (.sfi), downloaded with it for offline search. */
+    val index: String = "",
+    @SerialName("index_bytes") val indexBytes: Long = 0,
 ) {
     val sha256 get() = file.substringBefore('.')
+
+    /** The book's index file as a file to download, if it has one. */
+    val indexFile get() = if (index.isEmpty()) null else LibraryFileDto(book = book, he = he, file = index, bytes = indexBytes)
 }

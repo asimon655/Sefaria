@@ -24,10 +24,14 @@ class HtmlTest {
     }
 
     @Test
-    fun footnotes() {
-        val r = Html.parse("""<sup class="footnote-marker">*</sup><i class="footnote"><b>When God began </b>Others “In the beginning.”</i> heaven and earth—""")
-        assertEquals("* heaven and earth—", r.plain)
-        assertEquals(listOf("When God began Others “In the beginning.”"), r.notes)
+    fun footnotesDropped() {
+        val r = Html.parse("""a<sup class="footnote-marker">*</sup><i class="footnote"><b>When God began </b>Others “In the beginning.”</i> heaven and earth—""")
+        assertEquals("a heaven and earth—", r.plain)
+        assertEquals("x2", Html.parse("x<sup>2</sup>").plain) // other superscripts stay
+        // other spellings of the class in the dump
+        assertEquals("AZAZEL. next", Html.parse("""AZAZEL.<sup class="FOOTNOTE-MARKER">16</sup><i class="FOOTNOTE">A CLIFF.</i> next""").plain)
+        assertEquals("who know good", Html.parse("""who know<sup class="endFootnote">-a</sup> good""").plain)
+        assertEquals("x y", Html.parse("""x<sup class="“footnote-marker”">89</sup><i class="“footnote”">(89) see</i> y""").plain)
     }
 
     @Test

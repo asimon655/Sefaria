@@ -8,7 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.asimon.sefaria.data.local.CacheEntry
-import org.asimon.sefaria.data.local.SefariaDb
+import org.asimon.sefaria.data.local.CacheDb
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -32,7 +32,7 @@ class DatabaseTest {
 
     @Test
     fun cacheTrimDropsLeastRecentlyUsed() = runBlocking {
-        val db = Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext, SefariaDb::class.java)
+        val db = Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext, CacheDb::class.java)
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
             .build()

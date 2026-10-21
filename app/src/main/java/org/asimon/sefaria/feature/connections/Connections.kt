@@ -37,7 +37,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
+import org.asimon.sefaria.ui.LocalTextFonts
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -68,6 +68,9 @@ import org.asimon.sefaria.data.repo.AppError
 import org.asimon.sefaria.data.repo.LinksRepository
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.ui.components.pick
+import org.asimon.sefaria.ui.components.Art
+import org.asimon.sefaria.ui.components.EmptyState
+import org.asimon.sefaria.ui.components.ErrorMessage
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.ui.theme.categoryColor
 import javax.inject.Inject
@@ -94,6 +97,8 @@ data class ConnectionsState(
     val groups: List<LinkGroupDto> = emptyList(),
     val filter: String? = null, // the group category shown; null = all (kept from verse to verse)
     val focus: String? = null, // the book title open in the swipe view; null = the list
+    /** The open book as last seen, kept while following the reading through verses it has nothing on. */
+    val focusBook: PanelBook? = null,
     val texts: Map<String, BookTexts> = emptyMap(), // book title -> its linked texts for [ref]
 ) {
     /** The books the list shows, in group order. */
@@ -126,7 +131,9 @@ class ConnectionsViewModel @Inject constructor(
         if (_state.value.ref == ref && _state.value.error == null) return
         val keep = _state.value
         // keep the old groups on screen until the new ones arrive, so following the reading doesn't flash
-        _state.value = ConnectionsState(ref = ref, book = book, loading = true, filter = keep.filter, focus = keep.focus, groups = keep.groups)
+        _state.value = ConnectionsState(
+            ref = ref, book = book, loading = true, filter = keep.filter, focus = keep.focus, focusBook = keep.focusBook, groups = keep.groups,
+        )
         viewModelScope.launch {
             val r = repo.links(ref, book)
             if (_state.value.ref != ref) return@launch
@@ -134,11 +141,21 @@ class ConnectionsViewModel @Inject constructor(
                 when (r) {
                     is Load.Ok -> {
                         val groups = r.value.groups
-                        val titles = groups.flatMap { g -> g.books.map { b -> b.title } }.toSet()
+                        val books = groups.flatMap { g -> g.books.map { b -> PanelBook(g, b) } }
+                        // The open book stays open from verse to verse: the same title, else the same
+                        // commentator in this book (Rashi on Genesis → Rashi on Exodus), else none here
+                        // (the panel says so, and the book comes back on the next verse that has it).
+                        val same = it.focus?.let { f ->
+                            books.firstOrNull { b -> b.book.title == f }
+                                ?: books.firstOrNull { b -> b.book.pinKey == it.focusBook?.book?.pinKey }
+                        }
                         it.copy(
                             loading = false, groups = groups,
-                            filter = it.filter?.takeIf { f -> groups.any { g -> g.category == f } },
-                            focus = it.focus?.takeIf { f -> f in titles },
+                            filter = it.filter?.takeIf { f -> groups.any { g -> g.category == f } }
+                                // a filter that would hide the open book's group gives way
+                                ?.takeIf { f -> same == null || same.group.category == f },
+                            focus = same?.book?.title ?: it.focus,
+                            focusBook = same ?: it.focusBook,
                         )
                     }
                     is Load.Err -> it.copy(loading = false, error = r.error, groups = emptyList())
@@ -148,7 +165,9 @@ class ConnectionsViewModel @Inject constructor(
     }
 
     fun setFilter(category: String?) = _state.update { it.copy(filter = category) }
-    fun setFocus(book: String?) = _state.update { it.copy(focus = book) }
+    fun setFocus(book: String?) = _state.update { s ->
+        s.copy(focus = book, focusBook = book?.let { t -> s.groups.flatMap { g -> g.books.map { PanelBook(g, it) } }.firstOrNull { it.book.title == t } })
+    }
     fun togglePin(key: String) = viewModelScope.launch { settings.togglePin(key) }
 
     /** Fetches one book's texts for the current ref, once. */
@@ -206,17 +225,9 @@ class ConnectionsActions(
 fun LazyListScope.connectionList(s: ConnectionsState, pinned: List<String>, prefs: Prefs, a: ConnectionsActions) {
     when {
         s.loading && s.groups.isEmpty() -> item(key = "c:loading") { Spinner() }
-        s.error != null -> item(key = "c:error") {
-            TextButton(onClick = a.onRetry, modifier = Modifier.padding(horizontal = 8.dp)) {
-                Text(s.error.text() + " · " + stringResource(R.string.retry))
-            }
-        }
+        s.error != null -> item(key = "c:error") { ErrorMessage(s.error, a.onRetry, compact = true) }
         s.groups.isEmpty() -> item(key = "c:empty") {
-            Text(
-                stringResource(R.string.no_connections),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp),
-            )
+            EmptyState(Art.BrokenLink, stringResource(R.string.no_connections), stringResource(R.string.no_connections_body), compact = true)
         }
         else -> {
             item(key = "c:chips") { CategoryChips(s, a.onFilter) }
@@ -360,7 +371,22 @@ private fun TextsOfBook(book: String, texts: BookTexts?, prefs: Prefs, a: Connec
 @Composable
 fun CommentaryPager(s: ConnectionsState, pinned: List<String>, prefs: Prefs, a: ConnectionsActions, modifier: Modifier = Modifier) {
     val books = s.ordered(pinned)
-    if (books.isEmpty()) return
+    if (books.none { it.book.title == s.focus }) {
+        // following the reading onto a verse the open book has nothing on: say so, and stay
+        val fb = s.focusBook
+        Column(modifier) {
+            PagerHeader(fb, label = null, pinned = fb != null && fb.book.pinKey in pinned, a)
+            HorizontalDivider()
+            if (s.loading) Spinner()
+            else LazyColumn(Modifier.fillMaxSize()) {
+                item {
+                    val name = fb?.let { pick(it.book.title, it.book.he) } ?: s.focus.orEmpty()
+                    EmptyState(Art.BrokenLink, stringResource(R.string.no_book_here, name), stringResource(R.string.no_book_here_body), compact = true)
+                }
+            }
+        }
+        return
+    }
     val start = books.indexOfFirst { it.book.title == s.focus }.coerceAtLeast(0)
     val pager = rememberPagerState(initialPage = start) { books.size }
     // following the reading can bring a verse whose list is different: stay on the same book
@@ -372,21 +398,7 @@ fun CommentaryPager(s: ConnectionsState, pinned: List<String>, prefs: Prefs, a: 
     }
     val current = books.getOrNull(pager.currentPage) ?: books[0]
     Column(modifier) {
-        Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { a.onFocus(null) }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back_to_list))
-            }
-            ColorMark(current.group.category)
-            Text(
-                pick(current.book.title, current.book.he), Modifier.weight(1f).padding(start = 8.dp),
-                style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                stringResource(R.string.n_of_m, pager.currentPage + 1, books.size),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            PinButton(current.book.pinKey in pinned) { a.onPin(current.book.pinKey) }
-        }
+        PagerHeader(current, stringResource(R.string.n_of_m, pager.currentPage + 1, books.size), current.book.pinKey in pinned, a)
         HorizontalDivider()
         HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1, key = { books[it].book.title }) { page ->
             val pb = books[page]
@@ -395,6 +407,23 @@ fun CommentaryPager(s: ConnectionsState, pinned: List<String>, prefs: Prefs, a: 
                 item { TextsOfBook(pb.book.title, s.texts[pb.book.title], prefs, a, startPad = 16.dp) }
             }
         }
+    }
+}
+
+/** Back to the list, the book's colour and name, its place in the swipe order, and its pin. */
+@Composable
+private fun PagerHeader(book: PanelBook?, label: String?, pinned: Boolean, a: ConnectionsActions) {
+    Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { a.onFocus(null) }) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back_to_list))
+        }
+        if (book != null) ColorMark(book.group.category)
+        Text(
+            book?.let { pick(it.book.title, it.book.he) }.orEmpty(), Modifier.weight(1f).padding(start = 8.dp),
+            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        if (label != null) Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (book != null) PinButton(pinned) { a.onPin(book.book.pinKey) }
     }
 }
 
@@ -418,14 +447,14 @@ private fun LinkedTextRow(l: LinkedText, prefs: Prefs, startPad: Dp, onClick: ()
         if (showHe && l.he != null) Text(
             l.he.text,
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontFamily = FontFamily.Serif, fontSize = (18 * scale).sp, textDirection = TextDirection.Rtl,
+                fontFamily = LocalTextFonts.current.he, fontSize = (18 * scale).sp, textDirection = TextDirection.Rtl,
             ),
             modifier = Modifier.fillMaxWidth(),
         )
         if (showEn && l.en != null) Text(
             l.en.text,
             style = MaterialTheme.typography.bodyMedium.copy(
-                fontFamily = FontFamily.Serif, fontSize = (15 * scale).sp, textDirection = TextDirection.Ltr,
+                fontFamily = LocalTextFonts.current.en, fontSize = (15 * scale).sp, textDirection = TextDirection.Ltr,
             ),
             modifier = Modifier.fillMaxWidth(),
         )

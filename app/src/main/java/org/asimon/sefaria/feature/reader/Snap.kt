@@ -1,14 +1,16 @@
 package org.asimon.sefaria.feature.reader
 
-import androidx.compose.foundation.lazy.LazyListLayoutInfo
-
-/** A visible row as the snap rule sees it: its index and its top and bottom in viewport pixels. */
+/**
+ * A verse on screen as the snap rule sees it: its index and its top and bottom in viewport
+ * pixels. A verse-per-line row, or in paragraph flow the stretch from a verse's first line to
+ * the next verse's (ReaderScreen's verseSpots).
+ */
 data class SnapItem(val index: Int, val top: Int, val bottom: Int) {
     val size get() = bottom - top
 }
 
 /**
- * Where to snap when a scroll ends while connections are open, as a row index to bring to the
+ * Where to snap when a scroll ends while connections are open, as an item index to bring to the
  * snap line, or null to leave the list where it is. The snap line is [line] pixels below the
  * viewport's top, so the end of the previous verse stays in view as context.
  *
@@ -18,7 +20,7 @@ data class SnapItem(val index: Int, val top: Int, val bottom: Int) {
  *   inside it. Only once the next verse's top has passed the middle does that verse snap.
  * - Headers and other rows are skipped (a header at the line snaps to the verse after it).
  */
-fun snapTarget(items: List<SnapItem>, viewportTop: Int, viewportBottom: Int, line: Int, isVerse: (Int) -> Boolean): Int? {
+fun snapTarget(items: List<SnapItem>, viewportTop: Int, viewportBottom: Int, line: Int, isVerse: (Int) -> Boolean = { true }): Int? {
     val at = viewportTop + line
     val verses = items.filter { isVerse(it.index) && it.bottom > at }
     val a = verses.firstOrNull() ?: return null
@@ -35,16 +37,4 @@ fun snapTarget(items: List<SnapItem>, viewportTop: Int, viewportBottom: Int, lin
     }
     val below = a.bottom - at
     return if (below * 2 < a.size && next != null) next.index else a.index.takeIf { at - a.top > 2 }
-}
-
-/** [snapTarget] on a LazyList's current layout. */
-fun snapTarget(info: LazyListLayoutInfo, line: Int, isVerse: (Int) -> Boolean): Int? {
-    val items = info.visibleItemsInfo.map { SnapItem(it.index, it.offset, it.offset + it.size) }
-    return snapTarget(items, info.viewportStartOffset, info.viewportEndOffset, line, isVerse)
-}
-
-/** The verse row at the snap line (the one the connections panel follows), or null. */
-fun verseAtLine(info: LazyListLayoutInfo, line: Int, isVerse: (Int) -> Boolean): Int? {
-    val at = info.viewportStartOffset + line
-    return info.visibleItemsInfo.firstOrNull { isVerse(it.index) && it.offset + it.size > at + 1 }?.index
 }

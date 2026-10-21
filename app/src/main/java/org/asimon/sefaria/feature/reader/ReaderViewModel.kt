@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.asimon.sefaria.ReaderRoute
+import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.core.ref.Book
 import org.asimon.sefaria.core.ref.Catalog
 import org.asimon.sefaria.core.ref.Ref
@@ -106,9 +107,9 @@ class ReaderViewModel @Inject constructor(
     private val user: UserDataRepository,
     private val settings: Settings,
 ) : ViewModel() {
-    private val route = handle.toRoute<ReaderRoute>()
-    /** The source trail that led here (encoded steps, oldest first). */
-    val trail: List<String> = route.trail
+    private val route = handle.toRoute<ReaderRoute>(ReaderRoute.typeMap)
+    /** The source trail that led here, oldest first. */
+    val trail: List<TrailStep> = route.trail
     val prefs: StateFlow<Prefs> = settings.prefs
 
     private val _state = MutableStateFlow(ReaderState(bookTitle = route.book))

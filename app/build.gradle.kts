@@ -27,9 +27,16 @@ android {
     buildTypes {
         debug {
             // the host machine as seen from the emulator; overridable in Settings
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
+            // -Psefaria.apiBaseUrl=http://localhost:8080 for a phone with `adb reverse tcp:8080 tcp:8080`
+            buildConfigField(
+                "String", "API_BASE_URL",
+                "\"${providers.gradleProperty("sefaria.apiBaseUrl").getOrElse("http://10.0.2.2:8080")}\""
+            )
+            // HTTP/2 to a plain-HTTP dev server (h2c); -Psefaria.h2c=false for an HTTP/1.1-only server
+            buildConfigField("boolean", "H2C", providers.gradleProperty("sefaria.h2c").getOrElse("true"))
         }
         release {
+            buildConfigField("boolean", "H2C", "false")
             buildConfigField(
                 "String", "API_BASE_URL",
                 "\"${providers.gradleProperty("sefaria.apiBaseUrl").getOrElse("https://sefaria.invalid")}\""
@@ -50,6 +57,11 @@ android {
     androidResources {
         // only the app's languages, so library strings never appear in a third language
         localeFilters += listOf("en", "iw")
+    }
+
+    testOptions {
+        // android.util.Log and friends do nothing in JVM tests instead of throwing
+        unitTests.isReturnDefaultValues = true
     }
 
     buildFeatures {
@@ -74,6 +86,7 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.collections.immutable)
     ksp(libs.hilt.android.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(platform(libs.androidx.compose.bom))
@@ -88,11 +101,16 @@ dependencies {
     implementation(libs.androidx.sqlite.bundled)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
+    testImplementation("androidx.sqlite:sqlite-bundled-jvm:2.6.2")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     androidTestImplementation(libs.androidx.junit)

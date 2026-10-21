@@ -15,6 +15,14 @@ import org.asimon.sefaria.data.repo.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
+import org.asimon.sefaria.feature.downloads.GroupDownload
+import org.asimon.sefaria.feature.downloads.AskNotificationsOnDownload
+import org.asimon.sefaria.feature.downloads.DownloadsViewModel
+import org.asimon.sefaria.feature.downloads.BookRowDownload
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -99,19 +107,28 @@ fun LibraryScreen(
     onOpen: (Any) -> Unit, // a search result
     onBack: () -> Unit,
     vm: LibraryViewModel = hiltViewModel(),
+    downloads: DownloadsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    AskNotificationsOnDownload(downloads)
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(s.title?.let { pick(it.en, it.he) } ?: stringResource(R.string.tab_library), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { if (s.route.names.isNotEmpty()) BackButton(onBack) },
+                // the whole level: the library at the top, else this category
+                actions = {
+                    s.items?.let { items ->
+                        val name = s.title?.let { pick(it.en, it.he) } ?: stringResource(R.string.whole_library)
+                        GroupDownload(name, items.flatMap(::booksUnder), downloads, asButton = true)
+                    }
+                },
             )
         },
     ) { padding ->
         val items = s.items
         when {
-            s.error != null -> ErrorMessage(s.error!!.text(), vm::load, Modifier.padding(padding))
+            s.error != null -> ErrorMessage(s.error!!, vm::load, Modifier.padding(padding))
             items == null -> Loading(Modifier.padding(padding))
             else -> {
               val desc = s.title?.let { t -> prose(t.desc.en, t.desc.he).ifEmpty { prose(t.short.en, t.short.he) } }.orEmpty()
@@ -130,8 +147,11 @@ fun LibraryScreen(
                     }
                 }
                 items(items, key = { (if (it.isBook) "b:" + it.title else "c:" + it.en) }) { node ->
-                    TocRow(node, category = s.route.names.firstOrNull() ?: node.en) { if (node.isBook) onBook(node.title) else onCategory(s.route.child(node.en)) }
-                    HorizontalDivider()
+                    TocRow(node, category = s.route.names.firstOrNull() ?: node.en, onClick = { if (node.isBook) onBook(node.title) else onCategory(s.route.child(node.en)) }) {
+                        if (node.isBook) BookRowDownload(node.title, node.he, downloads)
+                        else GroupDownload(pick(node.en, node.he), booksUnder(node), downloads)
+                    }
+                    HorizontalDivider(Modifier.padding(horizontal = RowMargin))
                 }
               }
             }
@@ -139,17 +159,27 @@ fun LibraryScreen(
     }
 }
 
+/** Space between the screen's edges and the rows, so their colour bars aren't flush with the edge. */
+private val RowMargin = 12.dp
+
+/** The titles of every book under [node] (itself, if it is a book). */
+private fun booksUnder(node: TocNodeDto): List<String> = if (node.isBook) listOf(node.title) else node.children.flatMap(::booksUnder)
+
 @Composable
-private fun TocRow(node: TocNodeDto, category: String, onClick: () -> Unit) {
+private fun TocRow(node: TocNodeDto, category: String, onClick: () -> Unit, trailing: @Composable () -> Unit) {
     // the top-level category's colour, as a thin bar on the reading side
     val bar = categoryColor(category)
-    Column(
+    Row(
         Modifier
             .fillMaxWidth()
+            .padding(horizontal = RowMargin, vertical = 2.dp)
+            .clip(RoundedCornerShape(4.dp))
             .clickable(onClick = onClick)
             .drawBehind { drawRect(bar, size = Size(4.dp.toPx(), size.height), topLeft = Offset(if (layoutDirection == LayoutDirection.Rtl) size.width - 4.dp.toPx() else 0f, 0f)) }
-            .padding(PaddingValues(horizontal = 16.dp, vertical = 12.dp)),
+            .padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+      Column(Modifier.weight(1f)) {
         val en = if (node.isBook) node.title else node.en
         Text(
             pick(en, node.he),
@@ -172,5 +202,7 @@ private fun TocRow(node: TocNodeDto, category: String, onClick: () -> Unit) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+      }
+      trailing()
     }
 }

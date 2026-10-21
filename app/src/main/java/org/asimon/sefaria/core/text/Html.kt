@@ -9,21 +9,22 @@ import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.em
 
-/** A parsed segment: styled text plus its footnotes (plain text, in marker order). */
-data class RichText(val text: AnnotatedString, val notes: List<String> = emptyList()) {
+/** A parsed segment: styled text. */
+data class RichText(val text: AnnotatedString) {
     val plain get() = text.text
 }
 
 /**
  * Parses the HTML subset in Sefaria texts (SERVER_SPEC §6.3.1) into an AnnotatedString.
  * Unknown tags render as their inner text, and a "<" that does not start a well-formed tag
- * is literal text (the corpus has some). Footnote bodies (`<i class="footnote">`) move to
- * [RichText.notes]; their markers stay inline as superscripts. Runs off the main thread;
- * composables never parse.
+ * is literal text (the corpus has some). Footnotes are dropped, their markers
+ * (`<sup class="footnote-marker">`) and bodies (`<i class="footnote">`) both, whatever the class's
+ * spelling: the server's build
+ * removes them too (2026-10-14), and this covers texts cached or downloaded before. Runs off the
+ * main thread; composables never parse.
  */
 object Html {
     private val Muted = Color(0xFF8A8A8A)
-    private val Marker = Color(0xFF3B7FC4)
 
     private val voidTags = setOf("br", "img", "hr")
     private val entities = mapOf(
@@ -32,34 +33,28 @@ object Html {
         "hellip" to "…", "rsquo" to "’", "lsquo" to "‘", "rdquo" to "”", "ldquo" to "“", "shy" to "",
     )
 
-    private class Open(val name: String, val cls: String, val start: Int, val footnote: Boolean)
+    private class Open(val name: String, val cls: String, val start: Int, val dropped: Boolean)
 
     fun parse(html: String, stripNiqqud: Boolean = false, stripCantillation: Boolean = false): RichText {
         val out = AnnotatedString.Builder(html.length)
-        val notes = ArrayList<String>()
-        val note = StringBuilder()
-        var noteDepth = -1 // stack depth of the open footnote element, -1 if none
+        var dropDepth = -1 // stack depth of the open footnote element, -1 if none
         val stack = ArrayList<Open>()
 
         fun text(s: String) {
-            if (s.isEmpty()) return
-            val t = Hebrew.strip(s, stripNiqqud, stripCantillation)
-            if (noteDepth >= 0) note.append(t) else out.append(t)
+            if (s.isEmpty() || dropDepth >= 0) return
+            out.append(Hebrew.strip(s, stripNiqqud, stripCantillation))
         }
 
         fun newline() {
-            if (noteDepth >= 0) note.append(' ')
-            else if (out.length > 0 && !out.toAnnotatedString().text.endsWith('\n')) out.append('\n')
+            if (dropDepth < 0 && out.length > 0 && !out.toAnnotatedString().text.endsWith('\n')) out.append('\n')
         }
 
         fun close(o: Open) {
-            if (o.footnote) {
-                notes.add(note.toString().trim())
-                note.clear()
-                noteDepth = -1
+            if (o.dropped) {
+                dropDepth = -1
                 return
             }
-            if (noteDepth >= 0) return // styles inside footnotes are dropped
+            if (dropDepth >= 0) return // inside a footnote
             val end = out.length
             if (end <= o.start) return
             styleFor(o.name, o.cls)?.let { out.addStyle(it, o.start, end) }
@@ -112,7 +107,7 @@ object Html {
             }
             when (name) {
                 "br" -> {
-                    if (noteDepth >= 0) note.append(' ') else out.append('\n')
+                    if (dropDepth < 0) out.append('\n')
                     continue
                 }
                 "img", "hr" -> continue
@@ -124,13 +119,14 @@ object Html {
             }
             if (name in voidTags || attrs.endsWith("/")) continue
             val cls = classOf(attrs)
-            val footnote = name == "i" && noteDepth < 0 && "footnote" in cls.split(' ')
+            // the dump spells the class many ways (FOOTNOTE, “footnote”, endFootnote), so any mention counts
+            val footnote = dropDepth < 0 && (name == "i" || name == "sup") && attrs.contains("footnote", ignoreCase = true)
             stack.add(Open(name, cls, out.length, footnote))
-            if (footnote) noteDepth = stack.size
+            if (footnote) dropDepth = stack.size
         }
         flush()
         while (stack.isNotEmpty()) close(stack.removeAt(stack.size - 1))
-        return RichText(trimEnd(out.toAnnotatedString()), notes)
+        return RichText(trimEnd(out.toAnnotatedString()))
     }
 
     private fun styleFor(name: String, cls: String): SpanStyle? = when (name) {
@@ -140,11 +136,7 @@ object Html {
         "big" -> SpanStyle(fontSize = 1.2.em)
         "small" -> SpanStyle(fontSize = 0.8.em)
         "sub" -> SpanStyle(baselineShift = BaselineShift.Subscript, fontSize = 0.7.em)
-        "sup" -> if ("footnote-marker" in cls) {
-            SpanStyle(baselineShift = BaselineShift.Superscript, fontSize = 0.7.em, color = Marker)
-        } else {
-            SpanStyle(baselineShift = BaselineShift.Superscript, fontSize = 0.7.em)
-        }
+        "sup" -> SpanStyle(baselineShift = BaselineShift.Superscript, fontSize = 0.7.em)
         "span" -> when {
             "mam-spi" in cls || "mediumGrey" in cls || "mam-kq-trivial" in cls -> SpanStyle(color = Muted)
             else -> null

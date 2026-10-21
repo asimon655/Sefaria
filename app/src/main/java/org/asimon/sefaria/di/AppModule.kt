@@ -12,9 +12,12 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import okhttp3.Call
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import org.asimon.sefaria.BuildConfig
 import org.asimon.sefaria.data.Settings
+import org.asimon.sefaria.data.local.CacheDb
 import org.asimon.sefaria.data.local.LibraryStore
 import org.asimon.sefaria.data.local.SefariaDb
 import org.asimon.sefaria.data.remote.Api
@@ -29,6 +32,7 @@ import org.asimon.sefaria.data.repo.CalendarRepository
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.data.repo.TextRepository
 import org.asimon.sefaria.data.repo.UserDataRepository
+import org.asimon.sefaria.work.DownloadWorker
 import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
@@ -50,6 +54,17 @@ object AppModule {
         Room.databaseBuilder(ctx, SefariaDb::class.java, "sefaria.db")
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
+            // before the first release the schema changes freely: a new version starts empty
+            .fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
+
+    /** In the cache folder, so "Clear cache" in the app's info empties it. */
+    @Provides @Singleton
+    fun cacheDb(@ApplicationContext ctx: Context): CacheDb =
+        Room.databaseBuilder(ctx, CacheDb::class.java, File(ctx.cacheDir, CacheDb.FILE).path)
+            .setDriver(BundledSQLiteDriver())
+            .setQueryCoroutineContext(Dispatchers.IO)
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
     @Provides @Singleton
@@ -58,30 +73,46 @@ object AppModule {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * How requests are sent. Debug builds speak HTTP/2 to a plain-HTTP server too (h2c with prior
+     * knowledge; the dev server accepts it next to HTTP/1.1), so a local server is tested over
+     * the protocol production uses. HTTPS always negotiates in the TLS handshake.
+     */
     @Provides @Singleton
-    fun api(client: OkHttpClient, settings: Settings) = Api(client, settings::serverUrl)
+    fun calls(client: OkHttpClient): Call.Factory = if (BuildConfig.H2C) h2c(client) else client
+
+    /** [client] for https URLs; for http ones, the same client (and pool) speaking h2c. */
+    fun h2c(client: OkHttpClient): Call.Factory {
+        val plain = client.newBuilder().protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE)).build()
+        return Call.Factory { r -> (if (r.url.isHttps) client else plain).newCall(r) }
+    }
+
+    @Provides @Singleton
+    fun api(client: Call.Factory, settings: Settings) = Api(client, settings::serverUrl)
 
     @Provides @Singleton
     fun buildInfo() = BuildInfo()
 
     @Provides @Singleton
-    fun libraryStore(@ApplicationContext ctx: Context): LibraryStore {
-        File(ctx.filesDir, "packs").deleteRecursively() // downloads of app versions before the library files
-        return LibraryStore(File(ctx.filesDir, "library"))
-    }
+    fun libraryStore(@ApplicationContext ctx: Context, db: SefariaDb) = LibraryStore(File(ctx.filesDir, "library"), db.library())
 
     @Provides @Singleton
     fun offline(store: LibraryStore) = OfflineLibrary(store)
 
     @Provides @Singleton
-    fun fetcher(api: Api, db: SefariaDb, build: BuildInfo, store: LibraryStore) = CachedFetcher(api, db.cache(), build, store)
+    fun fetcher(api: Api, cache: CacheDb, build: BuildInfo, store: LibraryStore) = CachedFetcher(api, cache.cache(), build, store)
 
     @Provides @Singleton
-    fun downloads(api: Api, fetcher: CachedFetcher, store: LibraryStore, client: OkHttpClient, settings: Settings, scope: CoroutineScope) =
-        DownloadRepository(api, fetcher, store, FileDownloader(client, settings::serverUrl), scope)
+    fun downloads(
+        @ApplicationContext ctx: Context, api: Api, fetcher: CachedFetcher, db: SefariaDb, store: LibraryStore, client: Call.Factory,
+        settings: Settings, scope: CoroutineScope,
+    ) = DownloadRepository(
+        api, fetcher, db.library(), store, FileDownloader(client, settings::serverUrl), scope, File(ctx.filesDir, "downloads.pending"),
+        onQueued = { DownloadWorker.start(ctx) },
+    )
 
     @Provides @Singleton
-    fun library(api: Api, fetcher: CachedFetcher) = LibraryRepository(api, fetcher)
+    fun library(api: Api, fetcher: CachedFetcher, db: SefariaDb) = LibraryRepository(api, fetcher, db.library())
 
     @Provides @Singleton
     fun text(api: Api, fetcher: CachedFetcher, offline: OfflineLibrary) = TextRepository(api, fetcher, offline)

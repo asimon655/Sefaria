@@ -87,6 +87,7 @@ import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.remote.AltNodeDto
 import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.feature.downloads.BookDownload
+import org.asimon.sefaria.feature.downloads.AskNotificationsOnDownload
 import org.asimon.sefaria.feature.downloads.DownloadsViewModel
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.data.repo.UserDataRepository
@@ -130,6 +131,7 @@ fun BookScreen(
     dvm: DownloadsViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    AskNotificationsOnDownload(dvm)
     val position by vm.position.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     var searching by rememberSaveable { mutableStateOf(false) }
@@ -169,7 +171,7 @@ fun BookScreen(
     ) { padding ->
         val book = s.book
         when {
-            s.error != null -> ErrorMessage(s.error!!.text(), vm::load, Modifier.padding(padding))
+            s.error != null -> ErrorMessage(s.error!!, vm::load, Modifier.padding(padding))
             book == null -> Loading(Modifier.padding(padding))
             else -> {
                 var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -188,7 +190,7 @@ fun BookScreen(
                             }
                         }
                     }
-                    item { BookDownload(book.title, dvm) }
+                    item { BookDownload(book.title, book.he, dvm) }
                     if (alt != null) item {
                         PrimaryTabRow(selectedTabIndex = tab) {
                             Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.contents)) })
@@ -333,26 +335,20 @@ private fun LazyListScope.altNodes(nodes: List<AltNodeDto>, open: (String) -> Un
     }
 }
 
+/** The editions the reader shows (each language's default version), with their licenses. */
 @Composable
 private fun Versions(book: Book) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    val shown = book.dto.versions.filter { it.default }.sortedBy { it.lang }
+    if (shown.isEmpty()) return
     Column(Modifier.padding(16.dp)) {
-        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.versions, book.dto.versions.size), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
-        }
-        if (expanded) for (v in book.dto.versions.sortedWith(compareBy({ it.lang }, { !it.default }))) {
-            Column(Modifier.padding(vertical = 6.dp)) {
-                Text(
-                    (if (v.default) "★ " else "") + pick(v.title, v.he),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    listOf(v.lang, v.license).filter { it.isNotEmpty() }.joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        Text(stringResource(R.string.editions), style = MaterialTheme.typography.titleSmall)
+        for (v in shown) Column(Modifier.padding(vertical = 6.dp)) {
+            Text(pick(v.title, v.he), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                listOf(v.lang, v.license).filter { it.isNotEmpty() }.joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
