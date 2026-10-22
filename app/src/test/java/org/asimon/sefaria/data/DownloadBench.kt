@@ -15,14 +15,15 @@ import okio.Throttler
 import okio.buffer
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.data.repo.DownloadState
 import org.asimon.sefaria.data.repo.FileDownloader
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.repo.LibraryListing
+import org.asimon.sefaria.data.repo.SharedFiles
 import org.asimon.sefaria.di.AppModule
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -32,7 +33,7 @@ import java.io.File
 
 /**
  * Downloading the whole library the way the phone does: the app's own DownloadRepository,
- * FileDownloader and LibraryStore, its OkHttp client (HTTP/1.1 to the dev server), the same
+ * FileDownloader and the Library, its OkHttp client (HTTP/1.1 to the dev server), the same
  * number of parallel downloads, and the app scope's dispatcher. Runs only with SEFARIA_SERVER
  * set (e.g. http://localhost:8080). Optional, to come closer to a phone's link:
  *
@@ -73,17 +74,19 @@ class DownloadBench {
         val base = suspend { url!! }
         val api = Api(client, base)
         val db = testDb()
-        val store = LibraryStore(File(dir, "library"), db.library())
+        val store = Library(File(dir, "library"), db.installed())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default) // AppModule.appScope
+        val listing = LibraryListing(api, CachedFetcher(api, NoCache, BuildInfo(), store.reader), db.listing(), scope)
+        val downloader = FileDownloader(client, base)
         val repo = DownloadRepository(
-            api, CachedFetcher(api, NoCache, BuildInfo(), store), db.library(), store, FileDownloader(client, base), scope,
+            api, listing, SharedFiles(api, listing, store, downloader, scope), store, downloader, scope,
             parallel = parallel,
         )
 
-        check(repo.refreshListing() == null)
-        val listed = db.library().listedBooks().first()
+        check(listing.refresh() == null)
+        val listed = db.listing().listedBooks().first()
         val books = listed.let { b -> System.getenv("SEFARIA_BOOKS")?.toInt()?.let(b::take) ?: b }
-        val expected = books.sumOf { it.downloadBytes } + db.library().firstDownloadBytes().first()
+        val expected = books.sumOf { it.downloadBytes } + db.listing().firstDownloadBytes().first()
         println("bench: ${books.size} books, ${expected / 1_000_000} MB, latency $latency ms, bandwidth ${if (bandwidth > 0) "${bandwidth / 1_000_000} MB/s" else "unlimited"}, $parallel parallel, ${System.getProperty("os.name")}")
 
         val t0 = System.nanoTime()
@@ -91,8 +94,8 @@ class DownloadBench {
         val ticker = launch {
             while (true) {
                 delay(10_000)
-                val done = store.installedNow().size
-                println("bench: %5.0f s  %4d/%d books  %5.1f MB/s".format(secs(), done, books.size, store.bytes.first() / 1e6 / secs()))
+                val done = store.files.installedNow().size
+                println("bench: %5.0f s  %4d/%d books  %5.1f MB/s".format(secs(), done, books.size, store.files.bytes.first() / 1e6 / secs()))
             }
         }
         repo.downloadAll(books.map { it.book })
@@ -100,8 +103,8 @@ class DownloadBench {
         ticker.cancel()
         val s = secs()
         val failed = repo.downloads.value.filterValues { it is DownloadState.Failed }
-        val bytes = store.bytes.first()
-        val done = store.installedNow().size
+        val bytes = store.files.bytes.first()
+        val done = store.files.installedNow().size
         println("bench: done in %.1f s: %d books, %.0f MB, %.1f MB/s, %.0f books/s, %d failed%s".format(
             s, done, bytes / 1e6, bytes / 1e6 / s, done / s, failed.size,
             failed.entries.take(5).joinToString("") { "\n  ${it.key}: ${(it.value as DownloadState.Failed).error}" },

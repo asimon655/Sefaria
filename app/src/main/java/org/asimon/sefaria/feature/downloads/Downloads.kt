@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import org.asimon.sefaria.data.Settings
 import android.text.format.Formatter
-import androidx.compose.foundation.clickable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -31,19 +30,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -64,17 +59,23 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.R
-import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.data.local.InstalledBook
 import org.asimon.sefaria.data.local.ListedFile
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.data.repo.DownloadState
+import org.asimon.sefaria.data.repo.LibraryListing
+import org.asimon.sefaria.data.repo.SharedFiles
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.text
 import javax.inject.Inject
 
 @HiltViewModel
-class DownloadsViewModel @Inject constructor(private val repo: DownloadRepository, private val settings: Settings) : ViewModel() {
+class DownloadsViewModel @Inject constructor(
+    private val repo: DownloadRepository,
+    private val listing: LibraryListing,
+    shared: SharedFiles,
+    private val settings: Settings,
+) : ViewModel() {
     val installed = repo.installed
     val notificationsAsked = settings.prefs.map { it.notificationsAsked }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -91,25 +92,22 @@ class DownloadsViewModel @Inject constructor(private val repo: DownloadRepositor
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val bytes = repo.bytes
     /** The server's books by title, as last listed; empty if never listed. */
-    val available = repo.available
+    val available = listing.available
     /** What a download adds beyond the book: the connections file and forms table, until downloaded. */
-    val extra = repo.extra
+    val extra = listing.extra
 
     init {
-        viewModelScope.launch {
-            repo.scan()
-            repo.refreshLinks()
-        }
+        shared.syncLibrary()
     }
 
-    fun download(book: String) = viewModelScope.launch { if (repo.isListed(book)) repo.download(book) }
+    fun download(book: String) = viewModelScope.launch { if (listing.isListed(book)) repo.download(book) }
     fun downloadAll(books: Collection<String>) = viewModelScope.launch { repo.downloadAll(books) }
     fun cancelAll(books: Collection<String>) = repo.cancelAll(books)
     fun cancel(book: String) = repo.cancel(book)
     fun delete(book: String) = viewModelScope.launch { repo.delete(book) }
     fun setNotificationsAsked() = viewModelScope.launch { settings.setNotificationsAsked() }
     /** Pass the [available] entry read in composition, so the UI updates when the listing arrives. */
-    fun updateAvailable(p: InstalledBook, available: ListedFile?) = repo.updateAvailable(p, available)
+    fun updateAvailable(p: InstalledBook, available: ListedFile?) = listing.updateAvailable(p, available)
 
     /**
      * [books]' [GroupSummary], off the main thread and at most every [THROTTLE_MS]: the

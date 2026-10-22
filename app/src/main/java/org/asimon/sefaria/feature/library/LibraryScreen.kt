@@ -57,7 +57,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.LibraryRoute
 import org.asimon.sefaria.data.remote.TocNodeDto
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.repo.TocLevel
 import androidx.compose.runtime.remember
 import org.asimon.sefaria.data.repo.Load
@@ -79,7 +79,7 @@ data class LibraryState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     handle: SavedStateHandle,
-    private val library: LibraryRepository,
+    private val toc: TocRepository,
 ) : ViewModel() {
     private val route = handle.toRoute<LibraryRoute>()
     private val _state = MutableStateFlow(LibraryState(route))
@@ -89,7 +89,7 @@ class LibraryViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         _state.value = LibraryState(route)
-        _state.value = when (val r = library.level(route.names)) {
+        _state.value = when (val r = toc.level(route.names)) {
             is Load.Err -> LibraryState(route, error = r.error)
             is Load.Ok -> LibraryState(route, r.value)
         }

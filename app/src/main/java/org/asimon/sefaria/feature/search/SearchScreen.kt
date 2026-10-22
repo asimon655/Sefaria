@@ -65,7 +65,7 @@ import org.asimon.sefaria.core.text.SearchText
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
 import org.asimon.sefaria.data.repo.AppError
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.ui.components.BackButton
@@ -109,7 +109,7 @@ data class SearchResultsState(
 class SearchResultsViewModel @Inject constructor(
     handle: SavedStateHandle,
     private val search: SearchRepository,
-    private val library: LibraryRepository,
+    private val tocRepo: TocRepository,
 ) : ViewModel() {
     private val route = handle.toRoute<SearchRoute>()
     private val _state = MutableStateFlow(
@@ -120,7 +120,7 @@ class SearchResultsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val toc = library.toc()
+            val toc = tocRepo.toc()
             if (toc is Load.Ok) _state.update { s -> s.copy(toc = toc.value.tree) }
         }
         more()

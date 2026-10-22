@@ -11,19 +11,19 @@ import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import org.asimon.sefaria.data.local.CacheDb
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.LibraryFiles
 import java.util.concurrent.TimeUnit
 
 /**
  * Daily housekeeping while the phone is idle: trims the response cache to [CACHE_BYTES] (least
- * recently used first) and tidies the downloaded library (LibraryStore.tidy).
+ * recently used first) and tidies the downloaded library (LibraryFiles.tidy).
  */
 @HiltWorker
 class MaintenanceWorker @AssistedInject constructor(
     @Assisted ctx: Context,
     @Assisted params: WorkerParameters,
     private val cache: CacheDb,
-    private val library: LibraryStore,
+    private val library: LibraryFiles,
 ) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         cache.cache().trim(CACHE_BYTES)

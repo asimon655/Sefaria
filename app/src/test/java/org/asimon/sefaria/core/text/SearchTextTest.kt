@@ -31,8 +31,12 @@ class SearchTextTest {
             "  !! " to "",
             "\"unclosed phrase" to "\"unclosed phrase\"",
             "God's \"own words\" x" to "\"gods\" AND \"own words\" AND \"x\"",
-        ).forEach { (q, want) -> assertEquals(q, want, SearchText.expr(SearchText.parse(q))) }
+        ).forEach { (q, want) -> assertEquals(q, want, show(SearchText.parse(q))) }
     }
+
+    // Terms written compactly: each quoted, a prefix with a trailing *, joined by AND.
+    private fun show(terms: List<SearchText.Term>): String =
+        terms.joinToString(" AND ") { "\"" + it.tokens.joinToString(" ") + "\"" + if (it.prefix) "*" else "" }
 
     @Test
     fun snippet() {

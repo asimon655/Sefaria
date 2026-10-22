@@ -93,10 +93,6 @@ object SearchText {
         return terms
     }
 
-    /** The FTS5 MATCH expression; tokens hold only letters and digits, so quoting them is safe. */
-    fun expr(terms: List<Term>): String =
-        terms.joinToString(" AND ") { "\"" + it.tokens.joinToString(" ") + "\"" + if (it.prefix) "*" else "" }
-
     fun isHebrew(q: String): Boolean = q.any { it in 'א'..'ת' }
 
     /** A token with its Latin diacritics removed (é → e), as the index's tokenizer folds them. */

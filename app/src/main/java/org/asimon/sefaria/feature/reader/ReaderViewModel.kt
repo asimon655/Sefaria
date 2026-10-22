@@ -39,7 +39,7 @@ import org.asimon.sefaria.data.Prefs
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.ThemeMode
 import org.asimon.sefaria.data.TextFlow
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.BookRepository
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.data.repo.SectionText
 import org.asimon.sefaria.data.repo.TextRepository
@@ -102,7 +102,7 @@ private class Chunk(val section: Ref, val text: SectionText) {
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     handle: SavedStateHandle,
-    private val library: LibraryRepository,
+    private val books: BookRepository,
     private val texts: TextRepository,
     private val user: UserDataRepository,
     private val settings: Settings,
@@ -145,7 +145,7 @@ class ReaderViewModel @Inject constructor(
 
     fun open() = viewModelScope.launch {
         _state.value = ReaderState(bookTitle = route.book)
-        val b = when (val r = library.book(route.book)) {
+        val b = when (val r = books.book(route.book)) {
             is Load.Ok -> r.value
             is Load.Err -> return@launch fail(r.error)
         }

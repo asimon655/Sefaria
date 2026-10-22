@@ -8,11 +8,11 @@ import org.asimon.sefaria.core.ref.Book
 import org.asimon.sefaria.core.text.Expansion
 import org.asimon.sefaria.core.text.SearchMatch
 import org.asimon.sefaria.core.text.SearchText
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.remote.BookDto
 import org.asimon.sefaria.data.remote.LibraryDto
 import org.asimon.sefaria.data.remote.SefariaJson
-import org.asimon.sefaria.data.repo.OfflineLibrary
+import org.asimon.sefaria.data.repo.OfflineSearch
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -35,14 +35,14 @@ class OfflineSearchBench {
         val wanted = m.books.filter { b ->
             b.book.startsWith("Shulchan Arukh, ") || b.book.startsWith("Mishnah Berurah") || b.book in BAVLI
         }
-        val store = LibraryStore(tmp.root, testDb().library())
+        val store = Library(tmp.root, testDb().installed())
         store.installFrom(lib!!, m, wanted, link = true)
-        val offline = OfflineLibrary(store)
-        val books = wanted.map { Book(SefariaJson.decodeFromString(BookDto.serializer(), store.get(it.book, "book:${it.book}")!!)) }
+        val offline = OfflineSearch(store.reader)
+        val books = wanted.map { Book(SefariaJson.decodeFromString(BookDto.serializer(), store.reader.get(it.book, "book:${it.book}")!!)) }
         val bytes = wanted.sumOf { it.bytes } / 1e6
         println("${books.size} books, %.0f MB".format(bytes))
         for (q in listOf("שבת", "תפילין", "\"אמר רבי יוחנן\"", "מוקצה")) {
-            val clauses = SearchMatch.expand(SearchText.parse(q), store.forms(), Expansion())
+            val clauses = SearchMatch.expand(SearchText.parse(q), store.reader.forms(), Expansion())
             repeat(2) { run ->
                 for (tier in 1..2) {
                     val t0 = System.nanoTime()
@@ -63,10 +63,10 @@ class OfflineSearchBench {
             }
         }
         // the same without index files: what a book downloaded before them costs
-        val bare = OfflineLibrary(LibraryStore(tmp.newFolder(), testDb().library()).also { s ->
+        val bare = OfflineSearch(Library(tmp.newFolder(), testDb().installed()).also { s ->
             s.installFrom(lib!!, m, wanted.map { it.copy(index = "") }, link = true)
-        })
-        val clauses = SearchMatch.expand(SearchText.parse("מוקצה"), store.forms(), Expansion())
+        }.reader)
+        val clauses = SearchMatch.expand(SearchText.parse("מוקצה"), store.reader.forms(), Expansion())
         val t0 = System.nanoTime()
         var all = 0
         for (b in books) all += bare.search(b, "he", clauses, 1, -1, Int.MAX_VALUE)!!.size

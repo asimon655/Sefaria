@@ -66,7 +66,7 @@ import org.asimon.sefaria.data.Layout
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.TextFlow
 import org.asimon.sefaria.data.ThemeMode
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.feature.downloads.ConfirmDelete
 import android.text.format.Formatter
@@ -86,7 +86,7 @@ data class FontChoices(val he: List<DeviceFont>, val en: List<DeviceFont>)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: Settings,
-    private val library: LibraryRepository,
+    private val fetcher: CachedFetcher,
     private val downloads: DownloadRepository,
 ) : ViewModel() {
     val prefs = settings.prefs
@@ -100,7 +100,7 @@ class SettingsViewModel @Inject constructor(
 
     init { refresh() }
 
-    private fun refresh() = viewModelScope.launch { _build.value = library.refreshBuild() }
+    private fun refresh() = viewModelScope.launch { _build.value = fetcher.refreshBuild() }
 
     /** Scans the device's fonts once, when a font picker first opens. */
     fun loadFonts() {

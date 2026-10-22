@@ -18,16 +18,25 @@ import okhttp3.Protocol
 import org.asimon.sefaria.BuildConfig
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.local.CacheDb
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
+import org.asimon.sefaria.data.local.LibraryFiles
+import org.asimon.sefaria.data.local.LibraryInstaller
+import org.asimon.sefaria.data.local.LibraryReader
 import org.asimon.sefaria.data.local.SefariaDb
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.BookRepository
+import org.asimon.sefaria.data.repo.CompletionRepository
+import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.repo.LinksRepository
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.data.repo.FileDownloader
-import org.asimon.sefaria.data.repo.OfflineLibrary
+import org.asimon.sefaria.data.repo.LibraryListing
+import org.asimon.sefaria.data.repo.SharedFiles
+import org.asimon.sefaria.data.repo.OfflineLinks
+import org.asimon.sefaria.data.repo.OfflineSearch
+import org.asimon.sefaria.data.repo.OfflineText
 import org.asimon.sefaria.data.repo.CalendarRepository
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.data.repo.TextRepository
@@ -95,37 +104,65 @@ object AppModule {
     fun buildInfo() = BuildInfo()
 
     @Provides @Singleton
-    fun libraryStore(@ApplicationContext ctx: Context, db: SefariaDb) = LibraryStore(File(ctx.filesDir, "library"), db.library())
+    fun downloadedLibrary(@ApplicationContext ctx: Context, db: SefariaDb) = Library(File(ctx.filesDir, "library"), db.installed())
+
+    @Provides fun libraryFiles(l: Library): LibraryFiles = l.files
+
+    @Provides fun libraryReader(l: Library): LibraryReader = l.reader
+
+    @Provides fun libraryInstaller(l: Library): LibraryInstaller = l.installer
 
     @Provides @Singleton
-    fun offline(store: LibraryStore) = OfflineLibrary(store)
+    fun offlineLinks(reader: LibraryReader) = OfflineLinks(reader)
 
     @Provides @Singleton
-    fun fetcher(api: Api, cache: CacheDb, build: BuildInfo, store: LibraryStore) = CachedFetcher(api, cache.cache(), build, store)
+    fun offlineText(reader: LibraryReader, links: OfflineLinks) = OfflineText(reader, links)
+
+    @Provides @Singleton
+    fun offlineSearch(reader: LibraryReader) = OfflineSearch(reader)
+
+    @Provides @Singleton
+    fun fetcher(api: Api, cache: CacheDb, build: BuildInfo, reader: LibraryReader) = CachedFetcher(api, cache.cache(), build, reader)
+
+    @Provides @Singleton
+    fun fileDownloader(client: Call.Factory, settings: Settings) = FileDownloader(client, settings::serverUrl)
+
+    @Provides @Singleton
+    fun listing(api: Api, fetcher: CachedFetcher, db: SefariaDb, scope: CoroutineScope) = LibraryListing(api, fetcher, db.listing(), scope)
+
+    @Provides @Singleton
+    fun sharedFiles(api: Api, listing: LibraryListing, library: Library, downloader: FileDownloader, scope: CoroutineScope) =
+        SharedFiles(api, listing, library, downloader, scope)
 
     @Provides @Singleton
     fun downloads(
-        @ApplicationContext ctx: Context, api: Api, fetcher: CachedFetcher, db: SefariaDb, store: LibraryStore, client: Call.Factory,
-        settings: Settings, scope: CoroutineScope,
+        @ApplicationContext ctx: Context, api: Api, listing: LibraryListing, shared: SharedFiles, library: Library,
+        downloader: FileDownloader, scope: CoroutineScope,
     ) = DownloadRepository(
-        api, fetcher, db.library(), store, FileDownloader(client, settings::serverUrl), scope,
+        api, listing, shared, library, downloader, scope,
         onQueued = { DownloadWorker.start(ctx) },
     )
 
     @Provides @Singleton
-    fun library(@ApplicationContext ctx: Context, api: Api, fetcher: CachedFetcher, db: SefariaDb) =
-        LibraryRepository(api, fetcher, db, File(ctx.cacheDir, "toc"))
+    fun toc(@ApplicationContext ctx: Context, api: Api, fetcher: CachedFetcher, db: SefariaDb) =
+        TocRepository(api, fetcher, db, File(ctx.cacheDir, "toc"))
 
     @Provides @Singleton
-    fun text(api: Api, fetcher: CachedFetcher, offline: OfflineLibrary) = TextRepository(api, fetcher, offline)
+    fun books(api: Api, fetcher: CachedFetcher) = BookRepository(api, fetcher)
 
     @Provides @Singleton
-    fun links(api: Api, fetcher: CachedFetcher, offline: OfflineLibrary, library: LibraryRepository) =
-        LinksRepository(api, fetcher, offline, library)
+    fun completion(api: Api, toc: TocRepository) = CompletionRepository(api, toc)
 
     @Provides @Singleton
-    fun search(api: Api, library: LibraryRepository, store: LibraryStore, offline: OfflineLibrary) =
-        SearchRepository(api, library, store, offline)
+    fun text(api: Api, fetcher: CachedFetcher, offline: OfflineText) = TextRepository(api, fetcher, offline)
+
+    @Provides @Singleton
+    fun links(api: Api, fetcher: CachedFetcher, offline: OfflineLinks, books: BookRepository) =
+        LinksRepository(api, fetcher, offline, books)
+
+    @Provides @Singleton
+    fun search(api: Api, books: BookRepository, files: LibraryFiles, reader: LibraryReader, db: SefariaDb, offline: OfflineSearch) =
+        SearchRepository(api, books, files, reader, db.installed(), offline)
 
     @Provides @Singleton
     fun calendar(api: Api, fetcher: CachedFetcher) = CalendarRepository(api, fetcher)

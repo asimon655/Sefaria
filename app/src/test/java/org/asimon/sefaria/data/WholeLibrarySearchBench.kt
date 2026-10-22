@@ -4,7 +4,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.local.importToc
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.LibraryDto
@@ -13,9 +13,9 @@ import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.BookRepository
 import org.asimon.sefaria.data.repo.Load
-import org.asimon.sefaria.data.repo.OfflineLibrary
+import org.asimon.sefaria.data.repo.OfflineSearch
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.installFrom
 import org.asimon.sefaria.testDb
@@ -51,7 +51,7 @@ class WholeLibrarySearchBench {
         val m = SefariaJson.decodeFromString(LibraryDto.serializer(), File(lib, "manifest.json").readText())
         val db = testDb()
         val t0 = System.nanoTime()
-        val store = LibraryStore(tmp.newFolder("library"), db.library())
+        val store = Library(tmp.newFolder("library"), db.installed())
         store.installFrom(lib!!, m, link = true)
         val toc = SefariaJson.decodeFromString(TocDto.serializer(), File(lib.parentFile, "toc.json").readText())
         db.importToc(tocDbFile(toc, tmp.newFile("toc.sqlite")))
@@ -59,9 +59,9 @@ class WholeLibrarySearchBench {
 
         // a server that refuses connections: every page is searched offline
         val api = Api(OkHttpClient(), { "http://127.0.0.1:1/" })
-        val fetcher = CachedFetcher(api, NoCache, BuildInfo(), store)
-        val library = LibraryRepository(api, fetcher, db, tmp.newFolder("toc"))
-        val search = SearchRepository(api, library, store, OfflineLibrary(store))
+        val fetcher = CachedFetcher(api, NoCache, BuildInfo(), store.reader)
+        val books = BookRepository(api, fetcher)
+        val search = SearchRepository(api, books, store.files, store.reader, db.installed(), OfflineSearch(store.reader))
         fun heap(): Long { repeat(3) { System.gc(); Thread.sleep(200) }; val r = Runtime.getRuntime(); return r.totalMemory() - r.freeMemory() }
         val before = heap()
         val queries = System.getenv("BENCH_QUERIES")?.split(",") ?: listOf("שבת", "תפילין", "\"אמר רבי יוחנן\"", "קקקזזזק", "תפי*")

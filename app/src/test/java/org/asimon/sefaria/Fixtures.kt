@@ -5,7 +5,7 @@ import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import kotlinx.coroutines.Dispatchers
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.local.SefariaDb
 import org.asimon.sefaria.data.remote.LibraryDto
 import org.asimon.sefaria.data.remote.LibraryFileDto
@@ -29,20 +29,20 @@ fun testDb(): SefariaDb =
  * Installs [books] of the listing [m] from [src] (a folder of library files) as downloads do,
  * with the shared files; [link] puts symbolic links in place of copies (for big libraries).
  */
-suspend fun LibraryStore.installFrom(src: File, m: LibraryDto, books: List<LibraryFileDto> = m.books, link: Boolean = false) {
-    load() // creates the folder
+suspend fun Library.installFrom(src: File, m: LibraryDto, books: List<LibraryFileDto> = m.books, link: Boolean = false) {
+    reader.load() // creates the folder
     fun part(name: String): File {
-        val p = partFor(name)
+        val p = files.partFor(name)
         if (link) Files.createSymbolicLink(p.toPath(), File(src, name).toPath()) else File(src, name).copyTo(p, overwrite = true)
         return p
     }
-    check(installDict(part(m.dict.file), m.dict.sha256) == null)
+    check(installer.installDict(part(m.dict.file), m.dict.sha256) == null)
     for (b in books) {
-        check(installBook(b.book, part(b.file), b.file) == null) { b.book }
-        if (b.index.isNotEmpty()) check(installIndex(b.book, part(b.index), b.index) == null) { b.book }
+        check(installer.installBook(b.book, part(b.file), b.file) == null) { b.book }
+        if (b.index.isNotEmpty()) check(installer.installIndex(b.book, part(b.index), b.index) == null) { b.book }
     }
-    m.links?.let { check(installLinks(part(it.file), it.file) == null) }
-    m.forms?.let { check(installForms(part(it.file), it.sha256) == null) }
+    m.links?.let { check(installer.installLinks(part(it.file), it.file) == null) }
+    m.forms?.let { check(installer.installForms(part(it.file), it.sha256) == null) }
 }
 
 /** The SQL statements of a fixture .sql file (comments dropped, split at semicolons). */

@@ -7,7 +7,7 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.LibraryDto
@@ -17,9 +17,10 @@ import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TocNodeDto
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.BookRepository
+import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.repo.Load
-import org.asimon.sefaria.data.repo.OfflineLibrary
+import org.asimon.sefaria.data.repo.OfflineSearch
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -64,22 +65,23 @@ class SearchAssessment {
         // Left out: 34 books whose alt_structs hold a null ("Daf Yomi": null), which BookDto can't decode (a bug)
         val wanted = m.books.filter { b -> (all || wanted(b.book)) && !b.book.startsWith("Tosefta Kifshutah on ") && b.book != "Jerusalem Talmud Shekalim" }
         val db = testDb()
-        val store = LibraryStore(tmp.root, db.library())
+        val store = Library(tmp.root, db.installed())
         store.installFrom(lib!!, m, wanted, link = true)
 
         val http = OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build()
         val live = Api(http, { url!!.trimEnd('/') + "/" })
         val dead = Api(http, { "http://127.0.0.1:9/" })
-        val library = LibraryRepository(live, CachedFetcher(live, NoCache, BuildInfo(), store), db, tmp.newFolder())
-        val offline = SearchRepository(dead, library, store, OfflineLibrary(store))
-        val installed = store.installedNow().keys
+        val fetcher = CachedFetcher(live, NoCache, BuildInfo(), store.reader)
+        val toc = TocRepository(live, fetcher, db, tmp.newFolder())
+        val offline = SearchRepository(dead, BookRepository(live, fetcher), store.files, store.reader, db.installed(), OfflineSearch(store.reader))
+        val installed = store.files.installedNow().keys
 
         // category paths of the installed books, to give the server the same scope as the phone
         val paths = HashMap<String, String>()
         fun walk(nodes: List<TocNodeDto>, path: String) {
             for (n in nodes) if (n.isBook) paths[n.title] = path else walk(n.children, if (path.isEmpty()) n.en else "$path/${n.en}")
         }
-        walk((library.toc() as Load.Ok).value.tree, "")
+        walk((toc.toc() as Load.Ok).value.tree, "")
 
         val queries = queries().let { q -> if (System.getenv("SEFARIA_REPEAT") != null) q + q else q } // twice: cold, then warm
         say("# Search assessment\n")

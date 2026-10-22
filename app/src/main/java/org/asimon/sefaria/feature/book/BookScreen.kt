@@ -85,7 +85,7 @@ import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.core.text.Hebrew
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.remote.AltNodeDto
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.BookRepository
 import org.asimon.sefaria.feature.downloads.BookDownload
 import org.asimon.sefaria.feature.downloads.AskNotificationsOnDownload
 import org.asimon.sefaria.feature.downloads.DownloadsViewModel
@@ -101,7 +101,7 @@ data class BookState(val book: Book? = null, val error: AppError? = null)
 @HiltViewModel
 class BookViewModel @Inject constructor(
     handle: SavedStateHandle,
-    private val library: LibraryRepository,
+    private val books: BookRepository,
     user: UserDataRepository,
     settings: Settings,
 ) : ViewModel() {
@@ -115,7 +115,7 @@ class BookViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         _state.value = BookState()
-        _state.value = when (val r = library.book(title)) {
+        _state.value = when (val r = books.book(title)) {
             is Load.Ok -> BookState(r.value)
             is Load.Err -> BookState(error = r.error)
         }

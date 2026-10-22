@@ -46,7 +46,7 @@ import org.asimon.sefaria.BookRoute
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.SearchRoute
 import org.asimon.sefaria.data.remote.CompletionDto
-import org.asimon.sefaria.data.repo.SearchRepository
+import org.asimon.sefaria.data.repo.CompletionRepository
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import org.asimon.sefaria.data.repo.Load
 import javax.inject.Inject
@@ -66,7 +66,7 @@ data class SearchState(
 /** Completions for the search field: the query as a ref, then books by title (/v1/complete). */
 @OptIn(FlowPreview::class)
 @HiltViewModel
-class SearchViewModel @Inject constructor(private val search: SearchRepository) : ViewModel() {
+class SearchViewModel @Inject constructor(private val completion: CompletionRepository) : ViewModel() {
     private val _state = MutableStateFlow(SearchState())
     val state = _state.asStateFlow()
     private val queries = MutableStateFlow("")
@@ -88,7 +88,7 @@ class SearchViewModel @Inject constructor(private val search: SearchRepository) 
     private suspend fun complete(q: String) {
         if (q.isEmpty()) return _state.update { it.copy(items = emptyList(), error = null, shownQuery = "") }
         _state.update {
-            when (val r = search.complete(q)) {
+            when (val r = completion.complete(q)) {
                 is Load.Ok -> it.copy(items = r.value, error = null, shownQuery = q)
                 is Load.Err -> it.copy(items = emptyList(), error = r.error, shownQuery = q)
             }

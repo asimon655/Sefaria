@@ -7,7 +7,9 @@ import org.asimon.sefaria.data.local.BookFile
 import org.asimon.sefaria.data.local.BookReader
 import org.asimon.sefaria.data.local.BookText
 import org.asimon.sefaria.data.local.IndexFile
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.InstalledDao
+import org.asimon.sefaria.data.local.LibraryFiles
+import org.asimon.sefaria.data.local.LibraryReader
 import org.asimon.sefaria.data.local.SearchBook
 
 /**
@@ -21,7 +23,8 @@ import org.asimon.sefaria.data.local.SearchBook
  * Made for the library as it was ([version]): an install or delete makes it stale.
  */
 class SearchSession private constructor(
-    private val store: LibraryStore,
+    private val reader: LibraryReader,
+    private val dao: InstalledDao,
     val version: Long,
     /** Downloaded books in search order. */
     val books: List<SearchBook>,
@@ -36,26 +39,26 @@ class SearchSession private constructor(
     val titles: List<String> = books.map { it.book }
 
     /** Each book's category path in the TOC ("Tanakh/Torah"), read once per session. */
-    suspend fun paths(): Map<String, String> = paths ?: store.bookPaths().also { paths = it }
+    suspend fun paths(): Map<String, String> = paths ?: dao.bookPaths().associate { it.book to it.path }.also { paths = it }
 
     override suspend fun book(title: String): BookFile? {
         synchronized(this) { if (title in opened) return opened[title] }
         val file = files[title]?.file ?: return null
-        val f = withContext(Dispatchers.IO) { store.openBook(file, title) }
+        val f = withContext(Dispatchers.IO) { reader.openBook(file, title) }
         return synchronized(this) { opened.getOrPut(title) { f } }
     }
 
     override suspend fun index(title: String): IndexFile? {
         synchronized(this) { if (title in indexes) return indexes[title] }
         val file = files[title]?.index?.takeIf { it.isNotEmpty() }
-        val ix = if (file == null) null else withContext(Dispatchers.IO) { store.openIndex(file, title) }
+        val ix = if (file == null) null else withContext(Dispatchers.IO) { reader.openIndex(file, title) }
         return synchronized(this) { indexes.getOrPut(title) { ix } }
     }
 
     override suspend fun block(f: BookFile, t: BookText, i: Int): List<String>? {
         val k = f.file.name + "|" + t.lang + "|" + i
         synchronized(this) { blocks[k] }?.let { return it }
-        val lines = withContext(Dispatchers.IO) { store.readBlock(f, t, i) } ?: return null
+        val lines = withContext(Dispatchers.IO) { reader.readBlock(f, t, i) } ?: return null
         return synchronized(this) { blocks.getOrPut(k) { lines } }
     }
 
@@ -70,9 +73,9 @@ class SearchSession private constructor(
         const val BLOCKS = 32
         const val BOOKS = 64
 
-        suspend fun open(store: LibraryStore): SearchSession {
-            val v = store.version // before the query: a change meanwhile makes this session stale
-            return SearchSession(store, v, store.searchBooks())
+        suspend fun open(files: LibraryFiles, reader: LibraryReader, dao: InstalledDao): SearchSession {
+            val v = files.version // before the query: a change meanwhile makes this session stale
+            return SearchSession(reader, dao, v, withContext(Dispatchers.IO) { dao.searchBooks() })
         }
 
         private fun <K, V> lru(n: Int) = object : LinkedHashMap<K, V>(n, 0.75f, true) {

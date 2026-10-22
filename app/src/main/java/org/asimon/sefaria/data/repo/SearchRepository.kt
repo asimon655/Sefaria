@@ -7,16 +7,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.InstalledDao
+import org.asimon.sefaria.data.local.LibraryFiles
+import org.asimon.sefaria.data.local.LibraryReader
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
-import org.asimon.sefaria.data.remote.CompletionDto
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.asimon.sefaria.core.text.TitleMatch
 
 /**
  * One page of full-text hits. [offline] pages come from downloaded books only; [forms] are each
@@ -31,43 +31,22 @@ data class SearchPage(
 )
 
 /**
- * Title completion and full-text search (APP_SPEC §4.5, SERVER_SPEC §6.6). Full text asks the
- * server, which ranks; when the network fails it searches the downloaded books instead
- * (OfflineLibrary.search) in the server's library order: tier 1 (every word matched exactly),
+ * Full-text search (APP_SPEC §4.5, SERVER_SPEC §6.6). It asks the server, which ranks; when the network fails it searches the downloaded books instead
+ * (OfflineSearch) in the server's library order: tier 1 (every word matched exactly),
  * then tier 2 (forms), each in search order (texts, then commentaries and targumim, each in TOC
- * order: LibraryDao.searchOrder, from the TOC's dependent flags), with the same forms table and matcher (SearchMatch). An offline cursor starts with
+ * order: InstalledDao.searchBooks, from the TOC's dependent flags), with the same forms table and matcher (SearchMatch). An offline cursor starts with
  * "o:" so paging stays on the side it started on.
  */
 class SearchRepository(
     private val api: Api,
-    private val library: LibraryRepository,
-    private val store: LibraryStore,
-    private val offline: OfflineLibrary,
+    private val bookRepo: BookRepository,
+    private val files: LibraryFiles,
+    private val reader: LibraryReader,
+    private val dao: InstalledDao,
+    private val offline: OfflineSearch,
 ) {
     /** Titles of the downloaded books, for the scope picker's shortcut. */
-    val downloaded: Flow<Set<String>> = store.installed.map { it.keys }
-
-    /**
-     * Completions from the server (refs and titles); without the network, books whose names in the
-     * TOC table match, typos forgiven (TitleMatch). Offline there are no refs: parsing one needs
-     * the book's schema.
-     */
-    suspend fun complete(q: String): Load<List<CompletionDto>> = when (val r = api.complete(q)) {
-        is ApiResult.Ok -> Load.Ok(r.value.items)
-        is ApiResult.Failure -> if (r.error is ApiError.Network) completeOffline(q) else Load.Err(r.error.toAppError())
-        ApiResult.NotModified -> Load.Ok(emptyList())
-    }
-
-    /** Books of the TOC table by name. The names are read for each query and not kept. */
-    suspend fun completeOffline(q: String, limit: Int = COMPLETIONS): Load<List<CompletionDto>> {
-        val names = library.bookNames()
-        if (names.isEmpty()) return Load.Err(AppError.Network) // no TOC stored yet
-        val best = withContext(Dispatchers.Default) {
-            // texts before commentaries on a tie, then TOC order
-            TitleMatch.rank(q, names.sortedBy { it.dependent }, limit) { listOf(it.title, it.he) }
-        }
-        return Load.Ok(best.map { CompletionDto(kind = "book", ref = "", title = it.title, he = it.he, book = it.title) }, offline = true)
-    }
+    val downloaded: Flow<Set<String>> = files.installed.map { it.keys }
 
     /** What offline search keeps while the results page is open; null when none is. */
     private val sessionLock = Mutex()
@@ -75,7 +54,7 @@ class SearchRepository(
 
     /** The open session, or a new one if there is none or the library changed since. */
     private suspend fun session(): SearchSession = sessionLock.withLock {
-        session?.takeIf { it.version == store.version } ?: SearchSession.open(store).also { session = it }
+        session?.takeIf { it.version == files.version } ?: SearchSession.open(files, reader, dao).also { session = it }
     }
 
     /** Lets go of what offline search opened (the results page closed). */
@@ -104,7 +83,7 @@ class SearchRepository(
         val s = session()
         val order = s.titles
         if (terms.isEmpty() || order.isEmpty()) return Load.Err(AppError.Network)
-        val clauses = SearchMatch.expand(terms, store.forms(), Expansion(off = !filter.expand, all = filter.allForms, drop = filter.drop))
+        val clauses = SearchMatch.expand(terms, reader.forms(), Expansion(off = !filter.expand, all = filter.allForms, drop = filter.drop))
         val books = if (!filter.scoped) order else {
             val paths = s.paths()
             order.filter { inScope(filter, it, paths[it].orEmpty()) }
@@ -121,7 +100,7 @@ class SearchRepository(
             while (bi < books.size) {
                 val title = books[bi]
                 // books decoded for hits stay in the session, not in the reader's cache
-                val book = suspend { s.decoded(title) { (library.book(title, remember = false) as? Load.Ok)?.value } }
+                val book = suspend { s.decoded(title) { (bookRepo.book(title, remember = false) as? Load.Ok)?.value } }
                 val found = offline.search(title, book, lang, clauses, tier, after, limit - hits.size, reader = s).orEmpty()
                 hits += found.map { it.second }
                 if (hits.size == limit) {
@@ -144,9 +123,8 @@ class SearchRepository(
 
     companion object {
         const val PAGE = 20
-        const val COMPLETIONS = 10
 
-        /** A commentary or targum, as the server's search.IsDependent decides. */
+        /** How an offline cursor starts. */
         private const val OFFLINE = "o:"
     }
 }

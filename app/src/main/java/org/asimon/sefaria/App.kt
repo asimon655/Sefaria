@@ -13,7 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.data.repo.DownloadRepository
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.work.DownloadWorker
 import org.asimon.sefaria.work.MaintenanceWorker
 import javax.inject.Inject
@@ -26,7 +26,7 @@ import kotlin.time.Duration.Companion.milliseconds
 @HiltAndroidApp
 class App : Application(), Configuration.Provider {
     @Inject lateinit var scope: CoroutineScope
-    @Inject lateinit var library: Lazy<LibraryRepository>
+    @Inject lateinit var fetcher: Lazy<CachedFetcher>
     @Inject lateinit var downloads: Lazy<DownloadRepository>
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
@@ -36,7 +36,7 @@ class App : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         // the build id now: it decides whether the first screen's cached responses are current
-        scope.launch { library.get().refreshBuild() }
+        scope.launch { fetcher.get().refreshBuild() }
         scope.launch {
             Startup.ready.await()
             MaintenanceWorker.schedule(this@App)

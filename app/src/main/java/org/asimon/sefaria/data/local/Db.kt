@@ -17,20 +17,6 @@ import androidx.room.TypeConverters
 import kotlinx.coroutines.flow.Flow
 import org.asimon.sefaria.core.TrailStep
 
-/**
- * Response cache ([CacheDb], in the app's cache folder): server JSON stored verbatim, keyed by request
- * ("book:Genesis", "text:Genesis.1|he=d,en=d"). [etag] is the build id that
- * produced it, so a new build revalidates lazily with If-None-Match.
- */
-@Entity(tableName = "cache")
-data class CacheEntry(
-    @PrimaryKey val key: String,
-    val json: String,
-    val etag: String?,
-    @ColumnInfo(name = "fetched_at") val fetchedAt: Long,
-    @ColumnInfo(name = "last_access") val lastAccess: Long,
-)
-
 @Entity(tableName = "bookmark", indices = [Index("ref", unique = true)])
 data class Bookmark(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -60,33 +46,6 @@ data class ReadingPosition(
     val ref: String, // segment (or section) ref at the top of the screen
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
-
-@Dao
-interface CacheDao {
-    @Query("SELECT * FROM cache WHERE `key` = :key")
-    suspend fun get(key: String): CacheEntry?
-
-    @Upsert
-    suspend fun put(entry: CacheEntry)
-
-    @Query("DELETE FROM cache WHERE `key` = :key")
-    suspend fun delete(key: String)
-
-    @Query("UPDATE cache SET last_access = :now WHERE `key` = :key")
-    suspend fun touch(key: String, now: Long)
-
-    @Query("SELECT COALESCE(SUM(LENGTH(json)), 0) FROM cache")
-    suspend fun bytes(): Long
-
-    /** Drops least recently used entries until about [keepBytes] remain. */
-    @Query(
-        """DELETE FROM cache WHERE `key` IN (
-             SELECT `key` FROM (SELECT `key`, last_access,
-               SUM(LENGTH(json)) OVER (ORDER BY last_access DESC) AS running FROM cache)
-             WHERE running > :keepBytes)"""
-    )
-    suspend fun trim(keepBytes: Long)
-}
 
 @Dao
 interface UserDao {
@@ -128,10 +87,19 @@ interface UserDao {
     suspend fun putPosition(p: ReadingPosition)
 }
 
+/** Which server build the stored copy of [what] ([LISTING], [TOC]) came from. */
+@Entity(tableName = "synced")
+data class Synced(@PrimaryKey val what: String, val build: String) {
+    companion object {
+        const val LISTING = "listing"
+        const val TOC = "toc"
+    }
+}
+
 /**
  * The app's own data (files/databases/sefaria.db): the user's bookmarks, history and reading
- * positions, and the library's (LibraryDao): the server's listing, the downloaded files and
- * the category tree.
+ * positions, and the library's: the server's listing ([ListingDao]), the downloaded files
+ * ([InstalledDao]) and the category tree ([TocDao]).
  */
 @Database(
     entities = [
@@ -143,7 +111,9 @@ interface UserDao {
 @TypeConverters(Converters::class)
 abstract class SefariaDb : RoomDatabase() {
     abstract fun user(): UserDao
-    abstract fun library(): LibraryDao
+    abstract fun listing(): ListingDao
+    abstract fun installed(): InstalledDao
+    abstract fun toc(): TocDao
 
     companion object {
         /**
@@ -165,18 +135,4 @@ abstract class SefariaDb : RoomDatabase() {
 class Converters {
     @TypeConverter fun trailToColumn(t: List<TrailStep>): String = TrailStep.encode(t)
     @TypeConverter fun trailFromColumn(s: String): List<TrailStep> = TrailStep.decode(s)
-}
-
-/**
- * The response cache, a database of its own in the app's cache folder: the system may delete it
- * when storage runs low, and "Clear cache" in the app's info deletes it. Losing it only costs
- * requests, so it is rebuilt rather than migrated.
- */
-@Database(entities = [CacheEntry::class], version = 1)
-abstract class CacheDb : RoomDatabase() {
-    abstract fun cache(): CacheDao
-
-    companion object {
-        const val FILE = "responses.db"
-    }
 }

@@ -13,11 +13,9 @@ import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
-import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.CompletionRepository
+import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.repo.Load
-import org.asimon.sefaria.data.repo.OfflineLibrary
-import org.asimon.sefaria.data.repo.SearchRepository
-import org.asimon.sefaria.data.local.LibraryStore
 import org.asimon.sefaria.data.remote.TocNodeDto
 import kotlinx.coroutines.runBlocking
 import org.asimon.sefaria.fixture
@@ -34,7 +32,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
 
 /** The category tree's lifecycle: downloaded once per build as SQLite into its table, served from it offline. */
 class TocRepositoryTest {
@@ -65,7 +62,7 @@ class TocRepositoryTest {
         db.close()
     }
 
-    private fun repo() = LibraryRepository(api, CachedFetcher(api, NoCache, build), db, tmp.root.resolve("toc"))
+    private fun repo() = TocRepository(api, CachedFetcher(api, NoCache, build), db, tmp.root.resolve("toc"))
 
     private fun toc(buildId: String) = SefariaJson.decodeFromString(TocDto.serializer(), fixture("toc.json")).copy(buildId = buildId)
 
@@ -82,7 +79,7 @@ class TocRepositoryTest {
         build.current = "b1"
         respond(toc("b1"))
         assertEquals(toc("b1"), (repo().toc() as Load.Ok).value)
-        assertEquals(toc("b1"), db.library().toc())
+        assertEquals(toc("b1"), db.toc().toc())
         // a new process (new repository) reads the table without asking the server
         val again = repo().toc()
         assertEquals(Load.Ok(toc("b1")), again)
@@ -98,7 +95,7 @@ class TocRepositoryTest {
         val req = server.takeRequest()
         assertEquals("/v1/toc.sqlite", req.url.encodedPath)
         assertEquals("\"b1\"", req.headers["If-None-Match"])
-        assertEquals("b2", db.library().toc()!!.buildId)
+        assertEquals("b2", db.toc().toc()!!.buildId)
     }
 
     @Test
@@ -133,7 +130,7 @@ class TocRepositoryTest {
         build.current = "b2"
         respond(toc("b2"), version = 2)
         assertEquals(Load.Ok(toc("b1")), repo().toc())
-        assertEquals("b1", db.library().toc()!!.buildId)
+        assertEquals("b1", db.toc().toc()!!.buildId)
         assertTrue(tmp.root.resolve("toc").listFiles().orEmpty().isEmpty()) // the download is deleted
     }
 
@@ -169,9 +166,8 @@ class TocRepositoryTest {
         build.current = "b1"
         store(toc("b1"))
         server.close() // no network: completion comes from the table
-        val store = LibraryStore(tmp.newFolder(), db.library())
-        val search = SearchRepository(api, repo(), store, OfflineLibrary(store))
-        fun titles(q: String) = runBlocking { (search.complete(q) as Load.Ok).value.map { it.book } }
+        val completion = CompletionRepository(api, repo())
+        fun titles(q: String) = runBlocking { (completion.complete(q) as Load.Ok).value.map { it.book } }
         assertEquals("Berakhot", titles("berachot").first())
         assertEquals(listOf("Rashi on Genesis"), titles("רשי"))
         assertEquals("Shulchan Arukh, Orach Chayim", titles("orach").first())

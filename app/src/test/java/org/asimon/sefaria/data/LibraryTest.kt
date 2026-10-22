@@ -10,14 +10,16 @@ import org.asimon.sefaria.core.text.SearchText
 import org.asimon.sefaria.data.local.IndexFile
 import org.asimon.sefaria.data.remote.SearchHitDto
 import org.asimon.sefaria.data.local.BookFile
-import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.local.inflate
 import org.asimon.sefaria.data.remote.BookDto
 import org.asimon.sefaria.data.remote.LinksDto
 import org.asimon.sefaria.data.remote.SearchDto
 import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TextDto
-import org.asimon.sefaria.data.repo.OfflineLibrary
+import org.asimon.sefaria.data.repo.OfflineLinks
+import org.asimon.sefaria.data.repo.OfflineSearch
+import org.asimon.sefaria.data.repo.OfflineText
 import org.asimon.sefaria.data.repo.SectionText
 import org.asimon.sefaria.testDb
 import org.asimon.sefaria.installFrom
@@ -44,8 +46,10 @@ import java.util.zip.Deflater
 class LibraryTest {
     @get:Rule val tmp = TemporaryFolder()
     private val db = testDb()
-    private lateinit var store: LibraryStore
-    private lateinit var offline: OfflineLibrary
+    private lateinit var store: Library
+    private lateinit var offlineLinks: OfflineLinks
+    private lateinit var offlineText: OfflineText
+    private lateinit var offlineSearch: OfflineSearch
     private val books = HashMap<String, Book>()
 
     private fun server(name: String) = File(javaClass.getResource("/library/server/$name.json")!!.toURI()).readText()
@@ -53,11 +57,13 @@ class LibraryTest {
     @Before
     fun setUp() = runTest {
         val src = File(javaClass.getResource("/library/manifest.json")!!.toURI()).parentFile
-        store = LibraryStore(tmp.root, db.library())
+        store = Library(tmp.root, db.installed())
         store.installFrom(src, SefariaJson.decodeFromString(LibraryDto.serializer(), File(src, "manifest.json").readText()))
-        offline = OfflineLibrary(store)
+        offlineLinks = OfflineLinks(store.reader)
+        offlineText = OfflineText(store.reader, offlineLinks)
+        offlineSearch = OfflineSearch(store.reader)
         for (t in listOf("Genesis", "Pesach Haggadah", "Rashi on Genesis", "Leviticus")) {
-            books[t] = Book(SefariaJson.decodeFromString(BookDto.serializer(), store.get(t, "book:$t")!!))
+            books[t] = Book(SefariaJson.decodeFromString(BookDto.serializer(), store.reader.get(t, "book:$t")!!))
         }
     }
 
@@ -68,14 +74,14 @@ class LibraryTest {
 
     @Test
     fun installedBooks() = runTest {
-        assertEquals(setOf("Genesis", "Pesach Haggadah", "Rashi on Genesis", "Leviticus"), store.installedNow().keys)
+        assertEquals(setOf("Genesis", "Pesach Haggadah", "Rashi on Genesis", "Leviticus"), store.files.installedNow().keys)
         // a book's size counts its index file
-        val g = store.installedNow().getValue("Genesis")
+        val g = store.files.installedNow().getValue("Genesis")
         assertEquals(File(tmp.root, g.file).length() + tmp.root.listFiles { f -> f.name.endsWith(".sfi") }!!
             .single { org.asimon.sefaria.data.local.IndexFile(it).header.book == "Genesis" }.length(), g.bytes)
         // the library's size is every installed file's
-        assertEquals(tmp.root.listFiles { f -> f.extension in setOf("sfb", "sfi", "sfl", "dict", "forms") }!!.sumOf { it.length() }, store.bytes.first())
-        assertNull(store.get("Genesis", "text:Genesis.1")) // only metadata is served as JSON
+        assertEquals(tmp.root.listFiles { f -> f.extension in setOf("sfb", "sfi", "sfl", "dict", "forms") }!!.sumOf { it.length() }, store.files.bytes.first())
+        assertNull(store.reader.get("Genesis", "text:Genesis.1")) // only metadata is served as JSON
         assertEquals(3, books.getValue("Genesis").dto.versions.size)
     }
 
@@ -90,7 +96,7 @@ class LibraryTest {
             val t = SefariaJson.decodeFromString(TextDto.serializer(), server(name))
             val s = t.sections.single()
             val want = SectionText(s.ref, s.heRef, s.first, s.he, s.en, t.versions, s.linkCounts)
-            assertEquals(name, want, offline.section(ref(book, r)))
+            assertEquals(name, want, offlineText.section(ref(book, r)))
         }
     }
 
@@ -105,15 +111,15 @@ class LibraryTest {
             Triple("links-rashi-1-1-2", "Rashi on Genesis", "Rashi on Genesis 1:1:2"),
             Triple("links-kadesh-1", "Pesach Haggadah", "Pesach Haggadah, Kadesh 1"),
         )) {
-            assertEquals(name, SefariaJson.decodeFromString(LinksDto.serializer(), server(name)), offline.links(ref(book, r)))
+            assertEquals(name, SefariaJson.decodeFromString(LinksDto.serializer(), server(name)), offlineLinks.links(ref(book, r)))
         }
         assertEquals(
             SefariaJson.decodeFromString(LinksDto.serializer(), server("withtext-rashi")),
-            offline.links(ref("Genesis", "Genesis 1:1"), only = "Rashi on Genesis", withText = true),
+            offlineLinks.links(ref("Genesis", "Genesis 1:1"), only = "Rashi on Genesis", withText = true),
         )
         assertEquals(
             SefariaJson.decodeFromString(LinksDto.serializer(), server("withtext-haggadah")),
-            offline.links(ref("Genesis", "Genesis 2"), only = "Pesach Haggadah", withText = true),
+            offlineLinks.links(ref("Genesis", "Genesis 2"), only = "Pesach Haggadah", withText = true),
         )
     }
 
@@ -122,8 +128,8 @@ class LibraryTest {
 
     /** All hits for [q] in library order, as SearchRepository pages them offline: tier 1, then tier 2. */
     private suspend fun libraryOrder(q: String, lang: String, x: Expansion = Expansion(), only: List<String> = searchOrder): List<SearchHitDto> {
-        val clauses = SearchMatch.expand(SearchText.parse(q), store.forms(), x)
-        return (1..2).flatMap { tier -> only.flatMap { t -> offline.search(books.getValue(t), lang, clauses, tier, -1, 50)!!.map { it.second } } }
+        val clauses = SearchMatch.expand(SearchText.parse(q), store.reader.forms(), x)
+        return (1..2).flatMap { tier -> only.flatMap { t -> offlineSearch.search(books.getValue(t), lang, clauses, tier, -1, 50)!!.map { it.second } } }
     }
 
     @Test
@@ -144,7 +150,7 @@ class LibraryTest {
         }
         // paging: after the first hit's slot, the next one
         val rash = SearchMatch.expand(SearchText.parse("rash*"), null)
-        val rashi = offline.search(books.getValue("Rashi on Genesis"), "he", rash, 1, 0, 1)!!
+        val rashi = offlineSearch.search(books.getValue("Rashi on Genesis"), "he", rash, 1, 0, 1)!!
         assertEquals(listOf(1), rashi.map { it.first })
     }
 
@@ -153,9 +159,9 @@ class LibraryTest {
     @Test
     fun indexFindsEveryWord() = runTest {
         for (t in searchOrder) {
-            val f = store.book(t)!!
-            val ix = store.index(t)!!
-            for (text in f.header.texts) for (bi in text.blocks.indices) for (line in store.block(f, text, bi)!!) {
+            val f = store.reader.book(t)!!
+            val ix = store.reader.index(t)!!
+            for (text in f.header.texts) for (bi in text.blocks.indices) for (line in store.reader.block(f, text, bi)!!) {
                 for (w in SearchMatch.tokens(line)) assertTrue("$t ${text.lang} $w in block $bi", bi in ix.blocks(text.lang, w))
             }
         }
@@ -169,39 +175,39 @@ class LibraryTest {
 
     @Test
     fun deleteDropsLinksWithLastBook() = runTest {
-        for (t in searchOrder) store.delete(t)
-        assertTrue(store.installedNow().isEmpty())
-        assertNull(store.linksFile())
-        assertNull(store.forms())
-        assertNull(offline.links(ref("Genesis", "Genesis 1:1")))
+        for (t in searchOrder) store.installer.delete(t)
+        assertTrue(store.files.installedNow().isEmpty())
+        assertNull(store.reader.linksFile())
+        assertNull(store.reader.forms())
+        assertNull(offlineLinks.links(ref("Genesis", "Genesis 1:1")))
     }
 
     @Test
     fun restartReadsTheTable() = runTest {
-        val before = store.installedNow()
+        val before = store.files.installedNow()
         // a new store over the same folder and table (the app restarted) knows the books,
         // opens them only when read, and keeps their index files
-        val again = LibraryStore(tmp.root, db.library())
-        assertEquals(before, again.installedNow())
-        assertTrue(again.hasIndex("Genesis"))
-        assertEquals("Genesis", again.book("Genesis")!!.title)
-        assertTrue(again.index("Genesis") != null)
-        assertTrue(again.linksFile() != null)
-        assertTrue(again.forms() != null)
+        val again = Library(tmp.root, db.installed())
+        assertEquals(before, again.files.installedNow())
+        assertTrue(again.reader.hasIndex("Genesis"))
+        assertEquals("Genesis", again.reader.book("Genesis")!!.title)
+        assertTrue(again.reader.index("Genesis") != null)
+        assertTrue(again.reader.linksFile() != null)
+        assertTrue(again.reader.forms() != null)
     }
 
     @Test
     fun tidyCleansUpAnInterruptedInstall() = runTest {
-        val genesis = store.installedNow().getValue("Genesis").file
+        val genesis = store.files.installedNow().getValue("Genesis").file
         // a run ended between writing a file and recording it, and after a file's row went
         val orphan = File(tmp.root, "0".repeat(64) + ".sfb").apply { writeText("never recorded") }
-        File(tmp.root, store.installedNow().getValue("Leviticus").file).delete()
+        File(tmp.root, store.files.installedNow().getValue("Leviticus").file).delete()
         val part = File(tmp.root, "1".repeat(64) + ".sfb.part").apply { writeText("half a download") }
-        val again = LibraryStore(tmp.root, db.library())
+        val again = Library(tmp.root, db.installed())
         assertTrue(orphan.exists()) // a restart leaves them for the maintenance worker
-        again.tidy()
-        assertEquals(setOf("Genesis", "Pesach Haggadah", "Rashi on Genesis"), again.installedNow().keys)
-        assertEquals(genesis, again.bookFile("Genesis"))
+        again.files.tidy()
+        assertEquals(setOf("Genesis", "Pesach Haggadah", "Rashi on Genesis"), again.files.installedNow().keys)
+        assertEquals(genesis, again.reader.bookFile("Genesis"))
         assertTrue(!orphan.exists())
         assertTrue(part.exists()) // its download resumes
     }
@@ -222,11 +228,11 @@ class LibraryTest {
     @Test
     fun rejectsOtherFiles() = runTest {
         val bad = tmp.newFile("x.part").apply { writeText("not a book") }
-        assertTrue(store.installBook("Genesis", bad, "x.sfb")!!.startsWith("not a book file"))
-        val other = File(tmp.root, store.installedNow().getValue("Rashi on Genesis").file).copyTo(tmp.newFile("y.part"), overwrite = true)
-        assertEquals("not a book file of Genesis", store.installBook("Genesis", other, "y.sfb"))
+        assertTrue(store.installer.installBook("Genesis", bad, "x.sfb")!!.startsWith("not a book file"))
+        val other = File(tmp.root, store.files.installedNow().getValue("Rashi on Genesis").file).copyTo(tmp.newFile("y.part"), overwrite = true)
+        assertEquals("not a book file of Genesis", store.installer.installBook("Genesis", other, "y.sfb"))
         try {
-            BookFile(File(tmp.root, store.installedNow().getValue("Genesis").file)) { null }
+            BookFile(File(tmp.root, store.files.installedNow().getValue("Genesis").file)) { null }
             error("opened without its dictionary")
         } catch (_: DataFormatException) {
         }
