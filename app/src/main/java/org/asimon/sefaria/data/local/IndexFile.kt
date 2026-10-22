@@ -9,7 +9,7 @@ import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 
 /*
- * A book index file (SERVER_SPEC §7a, "<sha256>.sfi"): which blocks of a book file hold each
+ * A book index file (SERVER_SPEC §7, "<sha256>.sfi"): which blocks of a book file hold each
  * word, so offline search inflates only those blocks. Mirrors the server's bookfile/index.go:
  *
  *   "SFI1" · header length (uint32 LE) · header JSON · per text: skip table, hashes, postings

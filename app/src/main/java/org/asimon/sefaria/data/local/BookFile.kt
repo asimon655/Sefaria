@@ -10,7 +10,7 @@ import java.util.zip.DataFormatException
 import java.util.zip.Inflater
 
 /*
- * Library files (SERVER_SPEC §7a), read as downloaded: a header, then zlib blocks
+ * Library files (SERVER_SPEC §7), read as downloaded: a header, then zlib blocks
  * inflated one at a time when the reader needs them.
  *
  *   book file  "SFB1" · header length (uint32 LE) · header JSON · blocks

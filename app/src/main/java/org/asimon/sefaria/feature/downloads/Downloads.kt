@@ -102,7 +102,7 @@ class DownloadsViewModel @Inject constructor(private val repo: DownloadRepositor
         }
     }
 
-    fun download(book: String) { if (book in available.value) repo.download(book) }
+    fun download(book: String) = viewModelScope.launch { if (repo.isListed(book)) repo.download(book) }
     fun downloadAll(books: Collection<String>) = viewModelScope.launch { repo.downloadAll(books) }
     fun cancelAll(books: Collection<String>) = repo.cancelAll(books)
     fun cancel(book: String) = repo.cancel(book)

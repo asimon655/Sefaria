@@ -189,7 +189,7 @@ data class CompletionDto(
     val book: String = "",
 )
 
-/** [forms]: each query word's forms that it also matched; [total]: ranked candidates scored (SERVER_SPEC §6.6a). */
+/** [forms]: each query word's forms that it also matched; [total]: ranked candidates scored (SERVER_SPEC §6.6). */
 @Serializable
 data class SearchDto(
     val lang: String = "",
@@ -252,7 +252,7 @@ data class ErrorDto(val error: ErrorBody) {
     data class ErrorBody(val code: String = "", val message: String = "", val suggestions: List<String> = emptyList())
 }
 
-/** The library of a build (/v1/library, SERVER_SPEC §7a): files named by their sha256. */
+/** The library of a build (/v1/library, SERVER_SPEC §7): files named by their sha256. */
 @Serializable
 data class LibraryDto(
     val format: Int = 0,

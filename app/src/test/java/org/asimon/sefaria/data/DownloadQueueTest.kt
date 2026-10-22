@@ -4,6 +4,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import org.asimon.sefaria.data.remote.LibraryDto
+import org.asimon.sefaria.data.remote.SefariaJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import mockwebserver3.Dispatcher
@@ -39,7 +42,6 @@ class DownloadQueueTest {
     private val server = MockWebServer()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val src = File(javaClass.getResource("/library/manifest.json")!!.toURI()).parentFile!!
-    private lateinit var pending: File
     private val db = testDb()
     private var queued = 0
 
@@ -67,7 +69,6 @@ class DownloadQueueTest {
             }
         }
         server.start()
-        pending = File(tmp.root, "downloads.pending")
     }
 
     @After
@@ -83,10 +84,12 @@ class DownloadQueueTest {
         val api = Api(client, base)
         val store = LibraryStore(File(tmp.root, "library"), db.library())
         return DownloadRepository(
-            api, CachedFetcher(api, NoCache, BuildInfo(), store), db.library(), store, FileDownloader(client, base), scope, pending,
+            api, CachedFetcher(api, NoCache, BuildInfo(), store), db.library(), store, FileDownloader(client, base), scope,
             onQueued = { queued++ },
         )
     }
+
+    private fun listing() = SefariaJson.decodeFromString(LibraryDto.serializer(), File(src, "manifest.json").readText())
 
     @Test
     fun aDownloadStartsTheWorker() = runBlocking {
@@ -101,13 +104,40 @@ class DownloadQueueTest {
 
     @Test
     fun resumesTheQueueALastProcessLeft() = runBlocking {
-        pending.writeText("Genesis\nLeviticus")
+        // what a last process saved: the listing, with two books queued
+        db.library().putListing(listing(), "test-build")
+        db.library().setQueued(listOf("Genesis", "Leviticus"))
         val r = repo()
         assertTrue(r.hasSavedQueue())
         r.resumePending()
         withTimeout(10_000) { r.awaitIdle() }
         withTimeout(10_000) { r.installed.first { it.keys == setOf("Genesis", "Leviticus") } }
         assertFalse(r.hasPending())
+    }
+
+    @Test
+    fun theQueueIsSavedInTheListingAndSurvivesANewListing() = runBlocking {
+        val dao = db.library()
+        dao.putListing(listing(), "b1")
+        dao.setQueued(listOf("Genesis", "Leviticus", "Not Listed"))
+        assertEquals(setOf("Genesis", "Leviticus"), dao.queuedBooks().toSet())
+        dao.putListing(listing(), "b2") // a new build's listing keeps what is queued
+        assertEquals(setOf("Genesis", "Leviticus"), dao.queuedBooks().toSet())
+        dao.setQueued(listOf("Leviticus"))
+        assertEquals(listOf("Leviticus"), dao.queuedBooks())
+        dao.setQueued(emptyList())
+        assertFalse(dao.hasQueued())
+    }
+
+    @Test
+    fun aFinishedDownloadLeavesTheSavedQueue() = runBlocking {
+        val r = repo()
+        r.download("Genesis")
+        withTimeout(10_000) { r.awaitIdle() }
+        withTimeout(10_000) { r.installed.first { "Genesis" in it } }
+        // the queue is saved at most once a second
+        withTimeout(10_000) { while (db.library().hasQueued()) delay(100) }
+        assertFalse(db.library().hasQueued())
     }
 
     @Test

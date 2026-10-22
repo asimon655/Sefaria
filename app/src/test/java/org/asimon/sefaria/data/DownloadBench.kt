@@ -76,7 +76,7 @@ class DownloadBench {
         val store = LibraryStore(File(dir, "library"), db.library())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default) // AppModule.appScope
         val repo = DownloadRepository(
-            api, CachedFetcher(api, NoCache, BuildInfo(), store), db.library(), store, FileDownloader(client, base), scope, File(dir, "downloads.pending"),
+            api, CachedFetcher(api, NoCache, BuildInfo(), store), db.library(), store, FileDownloader(client, base), scope,
             parallel = parallel,
         )
 

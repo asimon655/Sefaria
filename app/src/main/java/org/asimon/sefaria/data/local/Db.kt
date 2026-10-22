@@ -10,6 +10,9 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
 import androidx.room.TypeConverter
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import androidx.room.TypeConverters
 import kotlinx.coroutines.flow.Flow
 import org.asimon.sefaria.core.TrailStep
@@ -135,12 +138,27 @@ interface UserDao {
         Bookmark::class, HistoryEntry::class, ReadingPosition::class,
         ListedFile::class, InstalledFile::class, Synced::class, TocNode::class,
     ],
-    version = 1,
+    version = 2,
 )
 @TypeConverters(Converters::class)
 abstract class SefariaDb : RoomDatabase() {
     abstract fun user(): UserDao
     abstract fun library(): LibraryDao
+
+    companion object {
+        /**
+         * Version 2: the download queue moves from files/downloads.pending into listed_file.queued,
+         * and toc_node gets indexes for walking the tree and joining on titles. A migration, not a
+         * fresh start: dropping installed_file would make the next tidy delete every download.
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE `listed_file` ADD COLUMN `queued` INTEGER NOT NULL DEFAULT 0")
+                connection.execSQL("CREATE INDEX IF NOT EXISTS `index_toc_node_parent` ON `toc_node` (`parent`)")
+                connection.execSQL("CREATE INDEX IF NOT EXISTS `index_toc_node_title` ON `toc_node` (`title`)")
+            }
+        }
+    }
 }
 
 /** Column types Room doesn't know. */

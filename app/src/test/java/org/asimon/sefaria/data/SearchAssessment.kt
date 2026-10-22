@@ -70,7 +70,7 @@ class SearchAssessment {
         val http = OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build()
         val live = Api(http, { url!!.trimEnd('/') + "/" })
         val dead = Api(http, { "http://127.0.0.1:9/" })
-        val library = LibraryRepository(live, CachedFetcher(live, NoCache, BuildInfo(), store), db.library())
+        val library = LibraryRepository(live, CachedFetcher(live, NoCache, BuildInfo(), store), db, tmp.newFolder())
         val offline = SearchRepository(dead, library, store, OfflineLibrary(store))
         val installed = store.installedNow().keys
 

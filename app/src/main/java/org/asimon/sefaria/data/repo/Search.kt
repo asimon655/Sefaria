@@ -14,7 +14,9 @@ import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.CompletionDto
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
-import org.asimon.sefaria.data.remote.TocNodeDto
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.asimon.sefaria.core.text.TitleMatch
 
 /**
  * One page of full-text hits. [offline] pages come from downloaded books only; [forms] are each
@@ -29,7 +31,7 @@ data class SearchPage(
 )
 
 /**
- * Title completion and full-text search (APP_SPEC §4.5, SERVER_SPEC §6.6a). Full text asks the
+ * Title completion and full-text search (APP_SPEC §4.5, SERVER_SPEC §6.6). Full text asks the
  * server, which ranks; when the network fails it searches the downloaded books instead
  * (OfflineLibrary.search) in the server's library order: tier 1 (every word matched exactly),
  * then tier 2 (forms), each in search order (texts, then commentaries and targumim, each in TOC
@@ -45,10 +47,40 @@ class SearchRepository(
     /** Titles of the downloaded books, for the scope picker's shortcut. */
     val downloaded: Flow<Set<String>> = store.installed.map { it.keys }
 
+    /**
+     * Completions from the server (refs and titles); without the network, books whose names in the
+     * TOC table match, typos forgiven (TitleMatch). Offline there are no refs: parsing one needs
+     * the book's schema.
+     */
     suspend fun complete(q: String): Load<List<CompletionDto>> = when (val r = api.complete(q)) {
         is ApiResult.Ok -> Load.Ok(r.value.items)
-        is ApiResult.Failure -> Load.Err(r.error.toAppError())
+        is ApiResult.Failure -> if (r.error is ApiError.Network) completeOffline(q) else Load.Err(r.error.toAppError())
         ApiResult.NotModified -> Load.Ok(emptyList())
+    }
+
+    /** Books of the TOC table by name. The names are read for each query and not kept. */
+    suspend fun completeOffline(q: String, limit: Int = COMPLETIONS): Load<List<CompletionDto>> {
+        val names = library.bookNames()
+        if (names.isEmpty()) return Load.Err(AppError.Network) // no TOC stored yet
+        val best = withContext(Dispatchers.Default) {
+            // texts before commentaries on a tie, then TOC order
+            TitleMatch.rank(q, names.sortedBy { it.dependent }, limit) { listOf(it.title, it.he) }
+        }
+        return Load.Ok(best.map { CompletionDto(kind = "book", ref = "", title = it.title, he = it.he, book = it.title) }, offline = true)
+    }
+
+    /** What offline search keeps while the results page is open; null when none is. */
+    private val sessionLock = Mutex()
+    @Volatile private var session: SearchSession? = null
+
+    /** The open session, or a new one if there is none or the library changed since. */
+    private suspend fun session(): SearchSession = sessionLock.withLock {
+        session?.takeIf { it.version == store.version } ?: SearchSession.open(store).also { session = it }
+    }
+
+    /** Lets go of what offline search opened (the results page closed). */
+    fun release() {
+        session = null
     }
 
     suspend fun page(q: String, filter: SearchFilter = SearchFilter(), cursor: String? = null, limit: Int = PAGE): Load<SearchPage> {
@@ -69,11 +101,12 @@ class SearchRepository(
     private suspend fun offlinePage(q: String, filter: SearchFilter, cursor: String?, limit: Int): Load<SearchPage> {
         val terms = SearchText.parse(q)
         val lang = filter.lang ?: if (SearchText.isHebrew(q)) "he" else "en"
-        val order = store.searchOrder()
+        val s = session()
+        val order = s.titles
         if (terms.isEmpty() || order.isEmpty()) return Load.Err(AppError.Network)
         val clauses = SearchMatch.expand(terms, store.forms(), Expansion(off = !filter.expand, all = filter.allForms, drop = filter.drop))
         val books = if (!filter.scoped) order else {
-            val paths = bookPaths()
+            val paths = s.paths()
             order.filter { inScope(filter, it, paths[it].orEmpty()) }
         }
         val expanded = clauses.any { c -> c.any { it.forms.isNotEmpty() } }
@@ -87,7 +120,9 @@ class SearchRepository(
         tiers@ while (tier <= 2 && (tier == 1 || expanded)) {
             while (bi < books.size) {
                 val title = books[bi]
-                val found = offline.search(title, { (library.book(title) as? Load.Ok)?.value }, lang, clauses, tier, after, limit - hits.size).orEmpty()
+                // books decoded for hits stay in the session, not in the reader's cache
+                val book = suspend { s.decoded(title) { (library.book(title, remember = false) as? Load.Ok)?.value } }
+                val found = offline.search(title, book, lang, clauses, tier, after, limit - hits.size, reader = s).orEmpty()
                 hits += found.map { it.second }
                 if (hits.size == limit) {
                     next = "$OFFLINE$tier:$bi:${found.last().first}"
@@ -107,21 +142,9 @@ class SearchRepository(
     private fun inScope(filter: SearchFilter, title: String, path: String): Boolean =
         !filter.scoped || title in filter.books || filter.categories.any { c -> path == c || path.startsWith("$c/") }
 
-    /** Each book's category path in the TOC ("Tanakh/Torah"), for a scoped search. */
-    private suspend fun bookPaths(): Map<String, String> {
-        val out = HashMap<String, String>()
-        fun walk(nodes: List<TocNodeDto>, path: String) {
-            for (n in nodes) {
-                if (n.isBook) out[n.title] = path
-                else walk(n.children, if (path.isEmpty()) n.en else path + "/" + n.en)
-            }
-        }
-        (library.toc() as? Load.Ok)?.let { walk(it.value.tree, "") }
-        return out
-    }
-
     companion object {
         const val PAGE = 20
+        const val COMPLETIONS = 10
 
         /** A commentary or targum, as the server's search.IsDependent decides. */
         private const val OFFLINE = "o:"

@@ -58,18 +58,23 @@ import kotlinx.coroutines.launch
 import org.asimon.sefaria.LibraryRoute
 import org.asimon.sefaria.data.remote.TocNodeDto
 import org.asimon.sefaria.data.repo.LibraryRepository
+import org.asimon.sefaria.data.repo.TocLevel
+import androidx.compose.runtime.remember
 import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.ui.components.BackButton
 import org.asimon.sefaria.ui.components.ErrorMessage
 import org.asimon.sefaria.ui.components.Loading
 import javax.inject.Inject
 
+/** [level]: the category shown (its node null at the top level), its rows, and the books under each. */
 data class LibraryState(
     val route: LibraryRoute,
-    val title: TocNodeDto? = null, // the category shown; null at the top level
-    val items: List<TocNodeDto>? = null,
+    val level: TocLevel? = null,
     val error: AppError? = null,
-)
+) {
+    val title: TocNodeDto? get() = level?.node
+    val items: List<TocNodeDto>? get() = level?.children
+}
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -84,17 +89,9 @@ class LibraryViewModel @Inject constructor(
 
     fun load() = viewModelScope.launch {
         _state.value = LibraryState(route)
-        _state.value = when (val r = library.toc()) {
+        _state.value = when (val r = library.level(route.names)) {
             is Load.Err -> LibraryState(route, error = r.error)
-            is Load.Ok -> {
-                var nodes = r.value.tree
-                var title: TocNodeDto? = null
-                for (name in route.names) {
-                    title = nodes.firstOrNull { !it.isBook && it.en == name }
-                    nodes = title?.children.orEmpty()
-                }
-                LibraryState(route, title, nodes)
-            }
+            is Load.Ok -> LibraryState(route, r.value)
         }
     }
 }
@@ -118,9 +115,10 @@ fun LibraryScreen(
                 navigationIcon = { if (s.route.names.isNotEmpty()) BackButton(onBack) },
                 // the whole level: the library at the top, else this category
                 actions = {
-                    s.items?.let { items ->
-                        val name = s.title?.let { pick(it.en, it.he) } ?: stringResource(R.string.whole_library)
-                        GroupDownload(name, items.flatMap(::booksUnder), downloads, asButton = true)
+                    s.level?.let { level ->
+                        val name = level.node?.let { pick(it.en, it.he) } ?: stringResource(R.string.whole_library)
+                        val books = remember(level) { level.books }
+                        GroupDownload(name, books, downloads, asButton = true)
                     }
                 },
             )
@@ -149,7 +147,7 @@ fun LibraryScreen(
                 items(items, key = { (if (it.isBook) "b:" + it.title else "c:" + it.en) }) { node ->
                     TocRow(node, category = s.route.names.firstOrNull() ?: node.en, onClick = { if (node.isBook) onBook(node.title) else onCategory(s.route.child(node.en)) }) {
                         if (node.isBook) BookRowDownload(node.title, node.he, downloads)
-                        else GroupDownload(pick(node.en, node.he), booksUnder(node), downloads)
+                        else GroupDownload(pick(node.en, node.he), s.level?.booksUnder?.get(TocLevel.key(node)).orEmpty(), downloads)
                     }
                     HorizontalDivider(Modifier.padding(horizontal = RowMargin))
                 }
@@ -161,9 +159,6 @@ fun LibraryScreen(
 
 /** Space between the screen's edges and the rows, so their colour bars aren't flush with the edge. */
 private val RowMargin = 12.dp
-
-/** The titles of every book under [node] (itself, if it is a book). */
-private fun booksUnder(node: TocNodeDto): List<String> = if (node.isBook) listOf(node.title) else node.children.flatMap(::booksUnder)
 
 @Composable
 private fun TocRow(node: TocNodeDto, category: String, onClick: () -> Unit, trailing: @Composable () -> Unit) {

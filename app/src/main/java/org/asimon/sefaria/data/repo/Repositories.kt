@@ -11,14 +11,19 @@ import org.asimon.sefaria.core.TrailStep
 import org.asimon.sefaria.core.ref.Book
 import org.asimon.sefaria.core.ref.Catalog
 import org.asimon.sefaria.core.ref.Ref
+import org.asimon.sefaria.data.local.BookName
 import org.asimon.sefaria.data.local.Bookmark
+import org.asimon.sefaria.data.local.TocNode
+import org.asimon.sefaria.data.local.dto
+import org.asimon.sefaria.data.remote.TocNodeDto
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.local.HistoryEntry
 import org.asimon.sefaria.data.local.OfflineSource
 import org.asimon.sefaria.data.local.ReadingPosition
-import org.asimon.sefaria.data.local.LibraryDao
+import org.asimon.sefaria.data.local.SefariaDb
 import org.asimon.sefaria.data.local.Synced
+import org.asimon.sefaria.data.local.importToc
 import org.asimon.sefaria.data.local.UserDao
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
@@ -30,6 +35,7 @@ import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TextDto
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.remote.VersionDto
+import java.io.File
 
 /** A loaded value, or an error to show. [offline] marks a cached value served because the network failed. */
 sealed interface Load<out T> {
@@ -141,12 +147,31 @@ class CachedFetcher(
     }
 }
 
+/** One level of the category tree: [node] (null at the top), its [children], and every book under each child. */
+data class TocLevel(val node: TocNodeDto?, val children: List<TocNodeDto>, val booksUnder: Map<String, List<String>>) {
+    /** Every book under this level. */
+    val books: List<String> get() = children.flatMap { booksUnder[key(it)].orEmpty() }
+
+    companion object {
+        /** A child's key in [booksUnder]: "b:<title>" for a book, "c:<en>" for a category. */
+        fun key(n: TocNodeDto) = if (n.isBook) "b:" + n.title else "c:" + n.en
+    }
+}
+
 /**
  * The library's category tree and books. The tree is kept in the toc_node table (not the
- * response cache) so it is there offline and after the cache is cleared; it is fetched again
- * when the server's build changes.
+ * response cache) so it is there offline and after the cache is cleared; when the server's
+ * build changes it is downloaded again as a SQLite file (/v1/toc.sqlite) into [tmpDir] and
+ * copied into the table as is. Screens read the levels they show ([level]); nothing keeps the
+ * whole tree in memory.
  */
-class LibraryRepository(private val api: Api, private val fetcher: CachedFetcher, private val dao: LibraryDao) {
+class LibraryRepository(
+    private val api: Api,
+    private val fetcher: CachedFetcher,
+    private val db: SefariaDb,
+    private val tmpDir: File,
+) {
+    private val dao = db.library()
     private val books = object : LinkedHashMap<String, Book>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Book>?) = size > 24
     }
@@ -155,39 +180,75 @@ class LibraryRepository(private val api: Api, private val fetcher: CachedFetcher
 
     suspend fun refreshBuild() = fetcher.refreshBuild()
 
-    @Volatile private var tocMemo: TocDto? = null // as last read or fetched; its buildId is the build it came from
+    /** The whole category tree, read from the table (after [syncToc]); built for each call, not kept. */
+    suspend fun toc(): Load<TocDto> = syncToc().map { checkNotNull(dao.toc()) }
 
-    /** The category tree: from memory or the table while the build is the same, else from the server. */
-    suspend fun toc(): Load<TocDto> = tocLock.withLock {
+    /**
+     * One level of the tree: the category at [path] (English names from the top; empty: the top
+     * level), its children, and the books under each child.
+     */
+    suspend fun level(path: List<String>): Load<TocLevel> {
+        val r = syncToc()
+        if (r is Load.Err) return r
+        val offline = (r as Load.Ok).offline
+        var node: TocNode? = null
+        for (name in path) node = dao.tocCategory(node?.id, name)
+            ?: return Load.Ok(TocLevel(null, emptyList(), emptyMap()), offline) // not in this build's tree
+        val children = dao.tocChildren(node?.id)
+        val ids = children.associate { it.id to TocLevel.key(it.dto()) }
+        val under = dao.booksUnder(node?.id).groupBy({ ids.getValue(it.root) }, { it.title })
+        return Load.Ok(TocLevel(node?.dto(), children.map { it.dto() }, under), offline)
+    }
+
+    /** Every book's names (TOC order), for offline completion; empty if no tree is stored. */
+    suspend fun bookNames(): List<BookName> = dao.bookNames()
+
+    @Volatile private var tocBuild: String? = null // the build the stored tree is from, once read
+
+    /**
+     * Brings the stored tree up to the server's build: kept while the build is the same, else
+     * downloaded again. Ok with the build of the tree in the table ([Load.Ok.offline] when the
+     * server couldn't be asked); Err when there is no tree.
+     */
+    suspend fun syncToc(): Load<String> = tocLock.withLock {
         val build = fetcher.build
-        val have = tocMemo ?: dao.toc()?.also { tocMemo = it }
-        if (have != null && (build == null || have.buildId == build)) return@withLock Load.Ok(have)
-        when (val r = api.toc(have?.buildId?.let { "\"$it\"" })) {
-            is ApiResult.Ok -> {
-                val toc = r.value.let { if (it.buildId.isEmpty()) it.copy(buildId = r.etag?.trim('"') ?: build.orEmpty()) else it }
-                tocMemo = toc
-                runCatching { dao.putToc(toc) }
-                Load.Ok(toc)
+        val have = tocBuild ?: dao.synced(Synced.TOC)?.also { tocBuild = it }
+        if (have != null && (build == null || have == build)) return@withLock Load.Ok(have)
+        tmpDir.mkdirs()
+        val file = File(tmpDir, "toc.sqlite")
+        try {
+            when (val r = api.tocDb(file, have?.let { "\"$it\"" })) {
+                is ApiResult.Ok -> try {
+                    Load.Ok(db.importToc(file).also { tocBuild = it })
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (have != null) Load.Ok(have) else Load.Err(AppError.BadResponse("toc.sqlite: ${e.message}"))
+                }
+                ApiResult.NotModified -> {
+                    // the same tree in the new build
+                    if (build == null) Load.Ok(have!!)
+                    else Load.Ok(build.also { dao.stamp(Synced(Synced.TOC, it)); tocBuild = it })
+                }
+                is ApiResult.Failure ->
+                    if (have != null && r.error !is ApiError.Http) Load.Ok(have, offline = true)
+                    else Load.Err(r.error.toAppError())
             }
-            ApiResult.NotModified -> {
-                // the same tree in the new build
-                val toc = if (build == null) have!! else have!!.copy(buildId = build).also { dao.stamp(Synced(Synced.TOC, build)) }
-                tocMemo = toc
-                Load.Ok(toc)
-            }
-            is ApiResult.Failure ->
-                if (have != null && r.error !is ApiError.Http) Load.Ok(have, offline = true)
-                else Load.Err(r.error.toAppError())
+        } finally {
+            file.delete()
         }
     }
 
-    /** A book's schema, versions and metadata; decoded books stay in memory (small LRU). */
-    suspend fun book(title: String): Load<Book> {
+    /**
+     * A book's schema, versions and metadata; decoded books stay in memory (small LRU). [remember]
+     * false leaves that LRU as it is (search decodes many books once: it keeps its own).
+     */
+    suspend fun book(title: String, remember: Boolean = true): Load<Book> {
         val key = title.replace('_', ' ')
         lock.withLock { books[key] }?.let { return Load.Ok(it) }
         val r = fetcher.get("book:$key", { decodeBook(it) }, book = key) { etag -> api.book(key, etag) }
             .let { it.map(::Book) }
-        if (r is Load.Ok) lock.withLock { books[key] = r.value }
+        if (r is Load.Ok && remember) lock.withLock { books[key] = r.value }
         return r
     }
 

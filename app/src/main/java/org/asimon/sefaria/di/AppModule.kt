@@ -54,7 +54,8 @@ object AppModule {
         Room.databaseBuilder(ctx, SefariaDb::class.java, "sefaria.db")
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
-            // before the first release the schema changes freely: a new version starts empty
+            .addMigrations(SefariaDb.MIGRATION_1_2)
+            // before the first release the schema may still change freely: a version with no migration starts empty
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
@@ -107,12 +108,13 @@ object AppModule {
         @ApplicationContext ctx: Context, api: Api, fetcher: CachedFetcher, db: SefariaDb, store: LibraryStore, client: Call.Factory,
         settings: Settings, scope: CoroutineScope,
     ) = DownloadRepository(
-        api, fetcher, db.library(), store, FileDownloader(client, settings::serverUrl), scope, File(ctx.filesDir, "downloads.pending"),
+        api, fetcher, db.library(), store, FileDownloader(client, settings::serverUrl), scope,
         onQueued = { DownloadWorker.start(ctx) },
     )
 
     @Provides @Singleton
-    fun library(api: Api, fetcher: CachedFetcher, db: SefariaDb) = LibraryRepository(api, fetcher, db.library())
+    fun library(@ApplicationContext ctx: Context, api: Api, fetcher: CachedFetcher, db: SefariaDb) =
+        LibraryRepository(api, fetcher, db, File(ctx.cacheDir, "toc"))
 
     @Provides @Singleton
     fun text(api: Api, fetcher: CachedFetcher, offline: OfflineLibrary) = TextRepository(api, fetcher, offline)

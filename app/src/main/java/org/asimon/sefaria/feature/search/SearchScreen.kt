@@ -169,6 +169,9 @@ class SearchResultsViewModel @Inject constructor(
         }
     }
 
+    /** The page closed: what offline search opened goes with it. */
+    override fun onCleared() = search.release()
+
     private fun mergeForms(now: Map<String, List<String>>, before: Map<String, List<String>>, drop: Set<String>) =
         (now.keys + before.keys).associateWith { w ->
             ((now[w].orEmpty()) + before[w].orEmpty().filter { it in drop }).distinct().sorted()

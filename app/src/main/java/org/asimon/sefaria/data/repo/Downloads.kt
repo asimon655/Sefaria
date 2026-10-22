@@ -137,7 +137,7 @@ class FileDownloader(private val client: Call.Factory, private val baseUrl: susp
 }
 
 /**
- * Downloaded books (SERVER_SPEC §7a): the server's listing (stored in the listed_file table, so
+ * Downloaded books (SERVER_SPEC §7): the server's listing (stored in the listed_file table, so
  * it is there offline), downloads in the app scope with progress, and installed books. A book
  * download also fetches the book's index file (for offline search), the dictionary if it is
  * missing, and the links file and Hebrew forms table if they are missing or older than the
@@ -148,9 +148,9 @@ class FileDownloader(private val client: Call.Factory, private val baseUrl: susp
  * installs them. The two run side by side, so the next download starts while a book is verified.
  *
  * Downloads run in the app scope, and [onQueued] starts a worker (DownloadWorker) that keeps
- * the process alive while they do and shows their progress. The queue is kept in [pendingFile]:
- * if the system ends the process, WorkManager runs the worker again, which resumes the queue
- * ([resumePending]), each file from where it stopped.
+ * the process alive while they do and shows their progress. The queue is saved in the listing
+ * (listed_file.queued): if the system ends the process, WorkManager runs the worker again, which
+ * resumes the queue ([resumePending]), each file from where it stopped.
  */
 class DownloadRepository(
     private val api: Api,
@@ -159,7 +159,6 @@ class DownloadRepository(
     private val store: LibraryStore,
     private val downloader: FileDownloader,
     private val scope: CoroutineScope,
-    private val pendingFile: File,
     private val onQueued: () -> Unit = {},
     parallel: Int = PARALLEL,
     verifiers: Int = VERIFY_PARALLEL,
@@ -167,9 +166,14 @@ class DownloadRepository(
     val installed: StateFlow<Map<String, InstalledBook>> = store.installed.stateIn(scope, SharingStarted.Eagerly, emptyMap())
     /** Disk used by the downloaded library. */
     val bytes: StateFlow<Long> = store.bytes.stateIn(scope, SharingStarted.Eagerly, 0L)
-    /** The server's downloadable books by title, as last listed; empty if never listed. */
+    /**
+     * The server's downloadable books by title, as last listed; empty if never listed. Read from
+     * the table while a screen shows downloads, and dropped a few seconds after the last one goes
+     * (the whole listing is thousands of rows).
+     */
     val available: StateFlow<Map<String, ListedFile>> =
-        dao.listedBooks().map { l -> l.associateBy { it.book } }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+        dao.listedBooks().map { l -> l.associateBy { it.book } }
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), emptyMap())
     /** What a first book download adds beyond the book: the links file, forms table and dictionary, until downloaded. */
     val extra: StateFlow<Long> = dao.firstDownloadBytes().stateIn(scope, SharingStarted.Eagerly, 0L)
     // Persistent (structurally shared): an update copies O(log n) nodes, not the whole map, which
@@ -193,23 +197,22 @@ class DownloadRepository(
             // the latest queue at most once a second (waiting for a quiet moment never came
             // while a big download kept changing it)
             pending.drop(1).conflate().collect { p ->
-                withContext(Dispatchers.IO) { runCatching { pendingFile.writeText(p.joinToString("\n")) } }
+                runCatching { dao.setQueued(p) }
                 delay(1000)
             }
         }
     }
 
-    /** Queues again what is pending: what the last process left in [pendingFile], and network failures. */
+    /** Queues again what is pending: what the last process saved, and network failures. */
     suspend fun resumePending() {
-        val titles = withContext(Dispatchers.IO) { runCatching { pendingFile.readLines() }.getOrDefault(emptyList()) }
-            .filter { it.isNotBlank() } + pending.value
+        val titles = runCatching { dao.queuedBooks() }.getOrDefault(emptyList()) + pending.value
         if (titles.isEmpty()) return
         pending.update { it.addAll(titles) }
         downloadAll(titles)
     }
 
     /** Whether the last process left downloads to resume. */
-    suspend fun hasSavedQueue(): Boolean = withContext(Dispatchers.IO) { pendingFile.length() > 0 }
+    suspend fun hasSavedQueue(): Boolean = dao.hasQueued()
 
     /** Whether downloads are left to do (queued, running, or stopped by the network). */
     fun hasPending(): Boolean = pending.value.isNotEmpty()
@@ -269,6 +272,9 @@ class DownloadRepository(
     /** True if the server has another file of an installed book. */
     fun updateAvailable(p: InstalledBook, available: ListedFile?): Boolean =
         available != null && available.file != p.file
+
+    /** Whether the stored listing offers [book]. */
+    suspend fun isListed(book: String): Boolean = dao.listedBook(book) != null
 
     fun download(book: String) {
         if (jobs[book]?.isActive == true) return

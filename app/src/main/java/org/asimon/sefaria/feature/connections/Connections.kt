@@ -114,7 +114,7 @@ data class ConnectionsState(
 }
 
 /**
- * Connections of the selected segment (APP_SPEC §3): category chips, pinned commentators
+ * Connections of the selected segment (APP_SPEC §4.7): category chips, pinned commentators
  * with their text, then every book with its count. Tapping a book opens it full-panel, where
  * swiping moves to the next book.
  */

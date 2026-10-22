@@ -155,7 +155,7 @@ class LibraryTest {
         for (t in searchOrder) {
             val f = store.book(t)!!
             val ix = store.index(t)!!
-            for (text in f.header.texts) for (bi in text.blocks.indices) for (line in store.block(f, text, bi)) {
+            for (text in f.header.texts) for (bi in text.blocks.indices) for (line in store.block(f, text, bi)!!) {
                 for (w in SearchMatch.tokens(line)) assertTrue("$t ${text.lang} $w in block $bi", bi in ix.blocks(text.lang, w))
             }
         }

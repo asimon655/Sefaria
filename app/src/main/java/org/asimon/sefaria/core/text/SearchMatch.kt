@@ -6,7 +6,7 @@ import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
 /**
- * The search matcher and the Hebrew forms table (SERVER_SPEC §6.6a). Mirrors the server's
+ * The search matcher and the Hebrew forms table (SERVER_SPEC §6.6). Mirrors the server's
  * internal/search (match.go, forms.go), so offline hits are the server's hits for the books
  * on the phone; checked against the same match.tsv and forms.tsv vectors.
  */

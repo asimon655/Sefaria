@@ -7,6 +7,7 @@ import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
+import org.asimon.sefaria.data.local.importToc
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TocDto
@@ -14,7 +15,17 @@ import org.asimon.sefaria.data.repo.BuildInfo
 import org.asimon.sefaria.data.repo.CachedFetcher
 import org.asimon.sefaria.data.repo.LibraryRepository
 import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.repo.OfflineLibrary
+import org.asimon.sefaria.data.repo.SearchRepository
+import org.asimon.sefaria.data.local.LibraryStore
+import org.asimon.sefaria.data.remote.TocNodeDto
+import kotlinx.coroutines.runBlocking
 import org.asimon.sefaria.fixture
+import org.asimon.sefaria.tocDbFile
+import androidx.sqlite.SQLiteStatement
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import androidx.room.useReaderConnection
+import okio.Buffer
 import org.asimon.sefaria.testDb
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -25,7 +36,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
-/** The category tree's lifecycle: fetched once per build into its file, served from it offline. */
+/** The category tree's lifecycle: downloaded once per build as SQLite into its table, served from it offline. */
 class TocRepositoryTest {
     @get:Rule val tmp = TemporaryFolder()
     private val server = MockWebServer()
@@ -54,12 +65,16 @@ class TocRepositoryTest {
         db.close()
     }
 
-    private fun repo() = LibraryRepository(api, CachedFetcher(api, NoCache, build), db.library())
+    private fun repo() = LibraryRepository(api, CachedFetcher(api, NoCache, build), db, tmp.root.resolve("toc"))
 
     private fun toc(buildId: String) = SefariaJson.decodeFromString(TocDto.serializer(), fixture("toc.json")).copy(buildId = buildId)
 
-    private fun respond(t: TocDto) = server.enqueue(
-        MockResponse.Builder().body(SefariaJson.encodeToString(TocDto.serializer(), t)).addHeader("ETag", "\"${t.buildId}\"").build()
+    private fun file(t: TocDto, version: Int = 1) = tocDbFile(t, tmp.newFile(), version)
+
+    private suspend fun store(t: TocDto) = db.importToc(file(t))
+
+    private fun respond(t: TocDto, version: Int = 1) = server.enqueue(
+        MockResponse.Builder().body(Buffer().write(file(t, version).readBytes())).addHeader("ETag", "\"${t.buildId}\"").build()
     )
 
     @Test
@@ -76,17 +91,19 @@ class TocRepositoryTest {
 
     @Test
     fun newBuildFetchesAgainWithTheOldEtag() = runTest {
-        db.library().putToc(toc("b1"))
+        store(toc("b1"))
         build.current = "b2"
         respond(toc("b2"))
         assertEquals("b2", (repo().toc() as Load.Ok).value.buildId)
-        assertEquals("\"b1\"", server.takeRequest().headers["If-None-Match"])
+        val req = server.takeRequest()
+        assertEquals("/v1/toc.sqlite", req.url.encodedPath)
+        assertEquals("\"b1\"", req.headers["If-None-Match"])
         assertEquals("b2", db.library().toc()!!.buildId)
     }
 
     @Test
     fun notModifiedKeepsTheTreeForTheNewBuild() = runTest {
-        db.library().putToc(toc("b1"))
+        store(toc("b1"))
         build.current = "b2"
         server.enqueue(MockResponse.Builder().code(304).build())
         assertEquals(toc("b2"), (repo().toc() as Load.Ok).value)
@@ -96,7 +113,7 @@ class TocRepositoryTest {
 
     @Test
     fun offlineServesTheTable() = runTest {
-        db.library().putToc(toc("b1"))
+        store(toc("b1"))
         build.current = "b2"
         server.close() // the network fails
         val r = repo().toc()
@@ -105,8 +122,59 @@ class TocRepositoryTest {
 
     @Test
     fun unknownBuildUsesTheTable() = runTest {
-        db.library().putToc(toc("b1"))
+        store(toc("b1"))
         assertEquals(Load.Ok(toc("b1")), repo().toc())
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun aFileOfAnotherVersionKeepsTheTable() = runTest {
+        store(toc("b1"))
+        build.current = "b2"
+        respond(toc("b2"), version = 2)
+        assertEquals(Load.Ok(toc("b1")), repo().toc())
+        assertEquals("b1", db.library().toc()!!.buildId)
+        assertTrue(tmp.root.resolve("toc").listFiles().orEmpty().isEmpty()) // the download is deleted
+    }
+
+    /** The server's toc_node (the shared schema) has the columns of the Room table it is copied into. */
+    @Test
+    fun serverSchemaMatchesTheRoomTable() = runTest {
+        val info = "PRAGMA table_info(toc_node)" // name, type, notnull, pk of each column
+        fun columns(st: SQLiteStatement) = buildList { while (st.step()) add(listOf(st.getText(1), st.getText(2), st.getLong(3), st.getLong(5))) }
+        val room = db.useReaderConnection { c -> c.usePrepared(info, ::columns) }
+        val server = BundledSQLiteDriver().open(file(toc("b1")).path).use { c -> c.prepare(info).use(::columns) }
+        assertEquals(room, server)
+    }
+
+    @Test
+    fun levelsAreReadFromTheTable() = runTest {
+        build.current = "b1"
+        store(toc("b1"))
+        val top = (repo().level(emptyList()) as Load.Ok).value
+        assertEquals(null, top.node)
+        assertEquals(listOf("Tanakh", "Talmud", "Halakhah", "Kabbalah", "Liturgy"), top.children.map { it.en })
+        assertEquals(listOf("Genesis", "Exodus", "Rashi on Genesis"), top.booksUnder["c:Tanakh"])
+        assertEquals(11, top.books.size)
+        val torah = (repo().level(listOf("Tanakh", "Torah")) as Load.Ok).value
+        assertEquals("Torah", torah.node?.en)
+        assertEquals(listOf("Genesis", "Exodus"), torah.children.map { it.title })
+        assertEquals(listOf("Genesis"), torah.booksUnder["b:Genesis"])
+        val gone = (repo().level(listOf("Tanakh", "Not a category")) as Load.Ok).value
+        assertEquals(emptyList<TocNodeDto>(), gone.children)
+    }
+
+    @Test
+    fun offlineCompletionUsesTheBookNames() = runTest {
+        build.current = "b1"
+        store(toc("b1"))
+        server.close() // no network: completion comes from the table
+        val store = LibraryStore(tmp.newFolder(), db.library())
+        val search = SearchRepository(api, repo(), store, OfflineLibrary(store))
+        fun titles(q: String) = runBlocking { (search.complete(q) as Load.Ok).value.map { it.book } }
+        assertEquals("Berakhot", titles("berachot").first())
+        assertEquals(listOf("Rashi on Genesis"), titles("רשי"))
+        assertEquals("Shulchan Arukh, Orach Chayim", titles("orach").first())
+        assertEquals(listOf("Genesis", "Rashi on Genesis"), titles("gen"))
     }
 }

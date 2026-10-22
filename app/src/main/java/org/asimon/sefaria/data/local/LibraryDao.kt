@@ -16,7 +16,7 @@ import org.asimon.sefaria.data.remote.LibraryFileDto
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.remote.TocNodeDto
 
-/** What a library file holds (SERVER_SPEC §7a), in [ListedFile] and [InstalledFile]. */
+/** What a library file holds (SERVER_SPEC §7), in [ListedFile] and [InstalledFile]. */
 object FileKind {
     const val BOOK = "book" // <sha256>.sfb
     const val INDEX = "index" // <sha256>.sfi, a book's search index
@@ -36,6 +36,8 @@ data class ListedFile(
     /** A book's index file, downloaded with it; "" if it has none. */
     @ColumnInfo(name = "index_file") val index: String = "",
     @ColumnInfo(name = "index_bytes") val indexBytes: Long = 0,
+    /** Books: queued for download (or stopped by the network), so a restart resumes it. */
+    @ColumnInfo(defaultValue = "0") val queued: Boolean = false,
 ) {
     val sha256 get() = file.substringBefore('.')
 
@@ -63,6 +65,18 @@ data class InstalledFile(
 /** A downloaded book; [file] is its book file, [bytes] counts its index file too. */
 data class InstalledBook(val book: String, val he: String, val file: String, val bytes: Long)
 
+/** A downloaded book as search reads it: its book file and index file ("" if none), in search order. */
+data class SearchBook(val book: String, val file: String, val index: String)
+
+/** A book of the TOC under the node [root] (a child of the level asked for). */
+data class BookUnder(val root: Int, val title: String)
+
+/** A book's names, for offline completion; [id] is its TOC position. */
+data class BookName(val id: Int, val title: String, val he: String, val dependent: Boolean)
+
+/** A downloaded book with its TOC category path ("Tanakh/Torah"; "" if not in the TOC), for a scoped search. */
+data class BookPath(val book: String, val path: String)
+
 /** Which server build the stored copy of [what] ([LISTING], [TOC]) came from. */
 @Entity(tableName = "synced")
 data class Synced(@PrimaryKey val what: String, val build: String) {
@@ -73,7 +87,7 @@ data class Synced(@PrimaryKey val what: String, val build: String) {
 }
 
 /** A node of the library's category tree; [id] is its pre-order position, [parent] null at the top. */
-@Entity(tableName = "toc_node")
+@Entity(tableName = "toc_node", indices = [Index("parent"), Index("title")])
 data class TocNode(
     @PrimaryKey val id: Int,
     val parent: Int?,
@@ -130,10 +144,12 @@ abstract class LibraryDao {
     )
     abstract suspend fun missingIndexes(): List<ListedFile>
 
+    /** Replaces the listing, keeping which books are queued. */
     @Transaction
     open suspend fun putListing(l: LibraryDto, build: String) {
+        val queued = queuedBooks().toHashSet()
         clearListing()
-        fun row(f: LibraryFileDto, kind: String) = ListedFile(f.file, kind, f.book, f.he, f.bytes, f.index, f.indexBytes)
+        fun row(f: LibraryFileDto, kind: String) = ListedFile(f.file, kind, f.book, f.he, f.bytes, f.index, f.indexBytes, kind == FileKind.BOOK && f.book in queued)
         insertListed(
             l.books.map { row(it, FileKind.BOOK) } + row(l.dict, FileKind.DICT) +
                 listOfNotNull(l.links?.let { row(it, FileKind.LINKS) }, l.forms?.let { row(it, FileKind.FORMS) })
@@ -143,6 +159,29 @@ abstract class LibraryDao {
 
     @Query("DELETE FROM listed_file")
     protected abstract suspend fun clearListing()
+
+    // ---- the download queue
+
+    /** Books queued for download, as last saved. */
+    @Query("SELECT book FROM listed_file WHERE queued AND kind = 'book'")
+    abstract suspend fun queuedBooks(): List<String>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM listed_file WHERE queued)")
+    abstract suspend fun hasQueued(): Boolean
+
+    /** Saves the queue: exactly [books] are queued (books not listed are left out). */
+    @Transaction
+    open suspend fun setQueued(books: Collection<String>) {
+        clearQueued()
+        // in chunks: a query has at most 32,766 parameters, and the library could outgrow one
+        books.chunked(QUEUE_CHUNK).forEach { markQueued(it) }
+    }
+
+    @Query("UPDATE listed_file SET queued = 0 WHERE queued")
+    protected abstract suspend fun clearQueued()
+
+    @Query("UPDATE listed_file SET queued = 1 WHERE kind = 'book' AND book IN (:books)")
+    protected abstract suspend fun markQueued(books: List<String>)
 
     @Insert
     protected abstract suspend fun insertListed(files: List<ListedFile>)
@@ -194,21 +233,30 @@ abstract class LibraryDao {
         return TocDto(build, tocTree(tocNodes()))
     }
 
-    @Transaction
-    open suspend fun putToc(toc: TocDto) {
-        clearToc()
-        insertToc(tocRows(toc.tree))
-        stamp(Synced(Synced.TOC, toc.buildId))
-    }
-
     @Query("SELECT * FROM toc_node ORDER BY id")
     protected abstract suspend fun tocNodes(): List<TocNode>
 
-    @Query("DELETE FROM toc_node")
-    protected abstract suspend fun clearToc()
+    /** The children of [parent] (null: the top level), in TOC order. */
+    @Query("SELECT * FROM toc_node WHERE parent IS :parent ORDER BY id")
+    abstract suspend fun tocChildren(parent: Int?): List<TocNode>
 
-    @Insert
-    protected abstract suspend fun insertToc(nodes: List<TocNode>)
+    /** The category named [en] under [parent] (null: the top level). */
+    @Query("SELECT * FROM toc_node WHERE parent IS :parent AND kind = 'category' AND en = :en LIMIT 1")
+    abstract suspend fun tocCategory(parent: Int?, en: String): TocNode?
+
+    /** Every book under each child of [parent] (a book child: itself), in TOC order. */
+    @Query(
+        """WITH RECURSIVE sub(root, id) AS (
+             SELECT id, id FROM toc_node WHERE parent IS :parent
+             UNION ALL SELECT sub.root, n.id FROM toc_node n JOIN sub ON n.parent = sub.id)
+           SELECT sub.root AS root, n.title AS title FROM sub JOIN toc_node n ON n.id = sub.id
+           WHERE n.kind = 'book' ORDER BY n.id"""
+    )
+    abstract suspend fun booksUnder(parent: Int?): List<BookUnder>
+
+    /** Every book's names, in TOC order. */
+    @Query("SELECT id, title, he, dependent FROM toc_node WHERE kind = 'book' ORDER BY id")
+    abstract suspend fun bookNames(): List<BookName>
 
     /**
      * Downloaded books in offline search order (the server's library order): texts, then
@@ -222,6 +270,29 @@ abstract class LibraryDao {
     )
     abstract suspend fun searchOrder(): List<String>
 
+    /** Downloaded books in search order ([searchOrder]) with their book and index files, in one query. */
+    @Query(
+        """SELECT b.book AS book, b.file AS file, COALESCE(i.file, '') AS `index` FROM installed_file b
+            LEFT JOIN installed_file i ON i.kind = 'index' AND i.book = b.book
+            LEFT JOIN toc_node n ON n.kind = 'book' AND n.title = b.book
+            WHERE b.kind = 'book'
+            ORDER BY n.dependent, n.id IS NULL, n.id, b.book"""
+    )
+    abstract suspend fun searchBooks(): List<SearchBook>
+
+    /** Each downloaded book's category path in the TOC, for a scoped search. */
+    @Query(
+        """WITH RECURSIVE cat(id, path) AS (
+             SELECT id, en FROM toc_node WHERE parent IS NULL AND kind = 'category'
+             UNION ALL SELECT n.id, cat.path || '/' || n.en FROM toc_node n JOIN cat ON n.parent = cat.id
+             WHERE n.kind = 'category')
+           SELECT b.book AS book, COALESCE(cat.path, '') AS path FROM installed_file b
+           LEFT JOIN toc_node n ON n.kind = 'book' AND n.title = b.book
+           LEFT JOIN cat ON cat.id = n.parent
+           WHERE b.kind = 'book'"""
+    )
+    abstract suspend fun bookPaths(): List<BookPath>
+
     // ---- builds
 
     @Query("SELECT build FROM synced WHERE what = :what")
@@ -231,6 +302,8 @@ abstract class LibraryDao {
     abstract suspend fun stamp(s: Synced)
 
     private companion object {
+        const val QUEUE_CHUNK = 10_000
+
         /** Each book file with its size and its index file's. */
         const val INSTALLED_BOOKS = """SELECT b.book, b.he, b.file, b.bytes + COALESCE(i.bytes, 0) AS bytes
             FROM installed_file b LEFT JOIN installed_file i ON i.kind = 'index' AND i.book = b.book
@@ -238,19 +311,10 @@ abstract class LibraryDao {
     }
 }
 
-/** The tree's nodes in pre-order, each with its parent's position. */
-fun tocRows(tree: List<TocNodeDto>): List<TocNode> {
-    val out = ArrayList<TocNode>()
-    fun add(n: TocNodeDto, parent: Int?) {
-        val id = out.size
-        out += TocNode(id, parent, n.kind, n.en, n.he, n.title, n.desc.en, n.desc.he, n.short.en, n.short.he, n.dependent)
-        n.children.forEach { add(it, id) }
-    }
-    tree.forEach { add(it, null) }
-    return out
-}
+/** One node without its children (a level of the tree is read on its own). */
+fun TocNode.dto() = TocNodeDto(kind, en, he, title, Bilingual(descEn, descHe), Bilingual(shortEn, shortHe), emptyList(), dependent)
 
-/** The tree back from [tocRows]' nodes (in id order). */
+/** The tree back from its toc_node rows (in id order). */
 fun tocTree(rows: List<TocNode>): List<TocNodeDto> {
     val children = rows.groupBy { it.parent }
     fun node(r: TocNode): TocNodeDto = TocNodeDto(

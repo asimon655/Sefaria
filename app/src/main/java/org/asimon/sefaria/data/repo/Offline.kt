@@ -11,6 +11,7 @@ import org.asimon.sefaria.core.ref.fromSlots
 import org.asimon.sefaria.core.text.Clause
 import org.asimon.sefaria.core.text.Kind
 import org.asimon.sefaria.core.text.SearchMatch
+import org.asimon.sefaria.data.local.BookReader
 import org.asimon.sefaria.data.local.IndexFile
 import org.asimon.sefaria.data.local.LibraryStore
 import org.asimon.sefaria.data.local.LinkRecords
@@ -24,7 +25,7 @@ import org.asimon.sefaria.data.remote.SearchHitDto
 import org.asimon.sefaria.data.remote.SefariaJson
 
 /**
- * Reading from the downloaded library (SERVER_SPEC §7a) with the server's own rules, so
+ * Reading from the downloaded library (SERVER_SPEC §7) with the server's own rules, so
  * offline answers match online ones: section text (/v1/text), link counts and connections
  * (/v1/links), and full-text search (/v1/search) by scanning the downloaded text. Each
  * method returns null when the library can't answer and the caller should ask the server.
@@ -147,7 +148,7 @@ class OfflineLibrary(private val store: LibraryStore) {
     }
 
     /**
-     * Full-text search in one downloaded book (SERVER_SPEC §6.6a): up to [limit] hits after slot
+     * Full-text search in one downloaded book (SERVER_SPEC §6.6): up to [limit] hits after slot
      * [after] in reading order, in [lang]'s default version, that match [q] in [tier] 1 (every
      * clause exactly) or 2 (the rest). The book's index file picks the blocks that may match;
      * without one (or for a word* clause) every block is read. Each hit comes with its slot (for
@@ -157,12 +158,16 @@ class OfflineLibrary(private val store: LibraryStore) {
         search(book.title, { book }, lang, q, tier, after, limit)
 
     // [book] is asked for only when there is a hit: decoding thousands of books' metadata per page
-    // is what made searching the whole library slow.
-    suspend fun search(title: String, book: suspend () -> Book?, lang: String, q: List<Clause>, tier: Int, after: Int, limit: Int): List<Pair<Int, SearchHitDto>>? =
+    // is what made searching the whole library slow. [reader] opens and reads the files: a search
+    // session keeps them for the whole search, apart from the reader's caches.
+    suspend fun search(
+        title: String, book: suspend () -> Book?, lang: String, q: List<Clause>, tier: Int, after: Int, limit: Int,
+        reader: BookReader = store,
+    ): List<Pair<Int, SearchHitDto>>? =
         withContext(Dispatchers.Default) {
-            val candidates = store.index(title)?.let { candidateBlocks(it, lang, q, exact = tier == 1) }
+            val candidates = reader.index(title)?.let { candidateBlocks(it, lang, q, exact = tier == 1) }
             if (candidates != null && candidates.isEmpty()) return@withContext emptyList()
-            val f = store.book(title) ?: return@withContext null
+            val f = reader.book(title) ?: return@withContext null
             val t = f.text(lang) ?: return@withContext emptyList()
             val out = ArrayList<Pair<Int, SearchHitDto>>()
             val from = after + 1
@@ -171,7 +176,7 @@ class OfflineLibrary(private val store: LibraryStore) {
             blocks@ for (bi in t.blockOf(from) until t.blocks.size) {
                 if (candidates != null && bi !in candidates) continue
                 ensureActive()
-                val lines = store.block(f, t, bi)
+                val lines = reader.block(f, t, bi) ?: return@withContext null
                 val first = t.first(bi)
                 for (j in maxOf(from - first, 0) until lines.size) {
                     val line = lines[j]

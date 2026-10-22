@@ -8,6 +8,7 @@ import kotlinx.serialization.SerializationException
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Call
 import okhttp3.Request
+import java.io.File
 import java.io.IOException
 
 /** Typed API results; the client never throws for HTTP or network failures. */
@@ -36,7 +37,25 @@ class Api(
 ) {
     suspend fun manifest() = get("/v1/manifest", ManifestDto.serializer())
 
-    suspend fun toc(etag: String? = null) = get("/v1/toc", TocDto.serializer(), etag)
+    /** The category tree as a SQLite file (/v1/toc.sqlite), written to [dest]; okhttp un-gzips it. */
+    suspend fun tocDb(dest: File, etag: String? = null): ApiResult<File> = withContext(io) {
+        val url = url("/v1/toc.sqlite", emptyList()) ?: return@withContext ApiResult.Failure(ApiError.BadResponse("bad server URL"))
+        val request = Request.Builder().url(url).apply { if (etag != null) header("If-None-Match", etag) }.build()
+        try {
+            client.newCall(request).execute().use { resp ->
+                when {
+                    resp.code == 304 -> ApiResult.NotModified
+                    resp.isSuccessful -> {
+                        dest.outputStream().use { resp.body.byteStream().copyTo(it) }
+                        ApiResult.Ok(dest, "", resp.header("ETag"))
+                    }
+                    else -> ApiResult.Failure(httpError(resp.code, resp.body.string()))
+                }
+            }
+        } catch (e: IOException) {
+            ApiResult.Failure(ApiError.Network(e))
+        }
+    }
 
     suspend fun book(title: String, etag: String? = null) =
         get("/v1/books/" + segment(title), BookDto.serializer(), etag)
@@ -95,10 +114,7 @@ class Api(
         query: Map<String, String> = emptyMap(),
         params: List<Pair<String, String>> = query.toList(), // repeated keys allowed
     ): ApiResult<T> = withContext(io) {
-        val base = baseUrl()
-        val url = (base.trimEnd('/') + path).toHttpUrlOrNull()?.newBuilder()?.apply {
-            params.forEach { (k, v) -> addQueryParameter(k, v) }
-        }?.build() ?: return@withContext ApiResult.Failure(ApiError.BadResponse("bad server URL $base"))
+        val url = url(path, params) ?: return@withContext ApiResult.Failure(ApiError.BadResponse("bad server URL ${baseUrl()}"))
         val request = Request.Builder().url(url).apply {
             if (etag != null) header("If-None-Match", etag)
         }.build()
@@ -120,6 +136,11 @@ class Api(
         }
     }
 
+    private suspend fun url(path: String, params: List<Pair<String, String>>) =
+        (baseUrl().trimEnd('/') + path).toHttpUrlOrNull()?.newBuilder()?.apply {
+            params.forEach { (k, v) -> addQueryParameter(k, v) }
+        }?.build()
+
     private fun httpError(status: Int, body: String): ApiError.Http = try {
         val e = SefariaJson.decodeFromString(ErrorDto.serializer(), body).error
         ApiError.Http(status, e.code, e.message)
@@ -133,7 +154,7 @@ class Api(
 
 /** Full-text search filters; null means any. [category] is a path of English names joined by "/". */
 /**
- * What a search covers and how it matches (SERVER_SPEC §6.6a). The scope is the union of
+ * What a search covers and how it matches (SERVER_SPEC §6.6). The scope is the union of
  * [books] and [categories] ("Tanakh/Torah"); both empty means the whole library. [expand]
  * false matches exact words only, [allForms] adds the other forms of the words' headwords,
  * [drop] leaves out forms the user turned off, and [order] "library" asks for the two-tier

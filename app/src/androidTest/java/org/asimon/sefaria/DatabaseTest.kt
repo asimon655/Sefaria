@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class DatabaseTest {
-    /** Phase 0 spike (APP_SPEC §6.2): the bundled SQLite driver must have FTS5 for offline search. */
+    /** Phase 0 spike (APP_SPEC §8): the bundled SQLite driver must have FTS5 for offline search. */
     @Test
     fun bundledSqliteHasFts5() {
         val conn = BundledSQLiteDriver().open(":memory:")
