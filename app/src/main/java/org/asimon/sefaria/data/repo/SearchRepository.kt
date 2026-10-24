@@ -17,6 +17,11 @@ import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.asimon.sefaria.data.Load
+import org.asimon.sefaria.data.AppError
+import org.asimon.sefaria.data.toAppError
+import org.asimon.sefaria.data.datasource.OfflineSearch
+import org.asimon.sefaria.data.datasource.SearchSession
 
 /**
  * One page of full-text hits. [offline] pages come from downloaded books only; [forms] are each

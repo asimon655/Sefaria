@@ -7,6 +7,9 @@ import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.CompletionDto
+import org.asimon.sefaria.data.Load
+import org.asimon.sefaria.data.AppError
+import org.asimon.sefaria.data.toAppError
 
 /** Title completion for the search box (APP_SPEC §4.5): the server's, or the TOC's names offline. */
 class CompletionRepository(private val api: Api, private val toc: TocRepository) {

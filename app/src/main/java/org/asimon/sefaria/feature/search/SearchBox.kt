@@ -3,7 +3,7 @@ package org.asimon.sefaria.feature.search
 import org.asimon.sefaria.ui.components.other
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.text
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
@@ -48,7 +48,7 @@ import org.asimon.sefaria.SearchRoute
 import org.asimon.sefaria.data.remote.CompletionDto
 import org.asimon.sefaria.data.repo.CompletionRepository
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.Load
 import javax.inject.Inject
 
 /**

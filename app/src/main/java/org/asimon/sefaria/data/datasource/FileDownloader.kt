@@ -1,4 +1,4 @@
-package org.asimon.sefaria.data.repo
+package org.asimon.sefaria.data.datasource
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -12,6 +12,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
+import org.asimon.sefaria.data.AppError
 
 /**
  * Downloads a library file, resuming a partial one with a Range request ([fetch]), and verifies

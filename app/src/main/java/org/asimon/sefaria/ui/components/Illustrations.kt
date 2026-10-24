@@ -28,7 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import org.asimon.sefaria.R
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 
 /** The pictures of the empty and error states, drawn in the theme's colours (a 200×160 canvas, like an SVG). */
 enum class Art { BrokenLink, Offline, Error, NoResults }

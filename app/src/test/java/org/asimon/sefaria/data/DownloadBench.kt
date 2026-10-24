@@ -17,11 +17,11 @@ import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.remote.Api
-import org.asimon.sefaria.data.repo.BuildInfo
-import org.asimon.sefaria.data.repo.CachedFetcher
+import org.asimon.sefaria.data.datasource.BuildInfo
+import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.data.repo.DownloadState
-import org.asimon.sefaria.data.repo.FileDownloader
+import org.asimon.sefaria.data.datasource.FileDownloader
 import org.asimon.sefaria.data.repo.LibraryListing
 import org.asimon.sefaria.data.repo.SharedFiles
 import org.asimon.sefaria.di.AppModule

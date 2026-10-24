@@ -1,6 +1,6 @@
 package org.asimon.sefaria.feature.reader
 
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -40,8 +40,8 @@ import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.ThemeMode
 import org.asimon.sefaria.data.TextFlow
 import org.asimon.sefaria.data.repo.BookRepository
-import org.asimon.sefaria.data.repo.Load
-import org.asimon.sefaria.data.repo.SectionText
+import org.asimon.sefaria.data.Load
+import org.asimon.sefaria.data.SectionText
 import org.asimon.sefaria.data.repo.TextRepository
 import org.asimon.sefaria.data.repo.UserDataRepository
 import javax.inject.Inject

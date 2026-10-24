@@ -64,9 +64,9 @@ import org.asimon.sefaria.data.Prefs
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.remote.LinkBookDto
 import org.asimon.sefaria.data.remote.LinkGroupDto
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 import org.asimon.sefaria.data.repo.LinksRepository
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.Load
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.Art
 import org.asimon.sefaria.ui.components.EmptyState

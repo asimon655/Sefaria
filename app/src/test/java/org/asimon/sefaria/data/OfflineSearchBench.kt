@@ -12,7 +12,7 @@ import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.remote.BookDto
 import org.asimon.sefaria.data.remote.LibraryDto
 import org.asimon.sefaria.data.remote.SefariaJson
-import org.asimon.sefaria.data.repo.OfflineSearch
+import org.asimon.sefaria.data.datasource.OfflineSearch
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test

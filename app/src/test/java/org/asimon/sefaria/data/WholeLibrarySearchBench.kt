@@ -11,11 +11,10 @@ import org.asimon.sefaria.data.remote.LibraryDto
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TocDto
-import org.asimon.sefaria.data.repo.BuildInfo
-import org.asimon.sefaria.data.repo.CachedFetcher
+import org.asimon.sefaria.data.datasource.BuildInfo
+import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.data.repo.BookRepository
-import org.asimon.sefaria.data.repo.Load
-import org.asimon.sefaria.data.repo.OfflineSearch
+import org.asimon.sefaria.data.datasource.OfflineSearch
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.installFrom
 import org.asimon.sefaria.testDb

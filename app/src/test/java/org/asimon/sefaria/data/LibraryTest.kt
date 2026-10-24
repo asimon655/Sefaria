@@ -17,10 +17,9 @@ import org.asimon.sefaria.data.remote.LinksDto
 import org.asimon.sefaria.data.remote.SearchDto
 import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TextDto
-import org.asimon.sefaria.data.repo.OfflineLinks
-import org.asimon.sefaria.data.repo.OfflineSearch
-import org.asimon.sefaria.data.repo.OfflineText
-import org.asimon.sefaria.data.repo.SectionText
+import org.asimon.sefaria.data.datasource.OfflineLinks
+import org.asimon.sefaria.data.datasource.OfflineSearch
+import org.asimon.sefaria.data.datasource.OfflineText
 import org.asimon.sefaria.testDb
 import org.asimon.sefaria.installFrom
 import org.asimon.sefaria.data.remote.LibraryDto

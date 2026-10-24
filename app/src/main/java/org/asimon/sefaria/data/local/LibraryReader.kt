@@ -14,7 +14,7 @@ fun interface OfflineSource {
 
 /**
  * How search reads downloaded books: [LibraryReader] for a one-off read, a search session
- * (data/repo/SearchSession.kt) for a whole search, which keeps what it opens to itself.
+ * (data/datasource/SearchSession.kt) for a whole search, which keeps what it opens to itself.
  */
 interface BookReader {
     suspend fun book(title: String): BookFile?

@@ -66,7 +66,7 @@ import org.asimon.sefaria.data.Layout
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.TextFlow
 import org.asimon.sefaria.data.ThemeMode
-import org.asimon.sefaria.data.repo.CachedFetcher
+import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.feature.downloads.ConfirmDelete
 import android.text.format.Formatter

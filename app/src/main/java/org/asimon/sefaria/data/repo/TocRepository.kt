@@ -14,6 +14,11 @@ import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.remote.TocNodeDto
 import java.io.File
+import org.asimon.sefaria.data.Load
+import org.asimon.sefaria.data.AppError
+import org.asimon.sefaria.data.toAppError
+import org.asimon.sefaria.data.datasource.CachedFetcher
+import org.asimon.sefaria.data.map
 
 /** One level of the category tree: [node] (null at the top), its [children], and every book under each child. */
 data class TocLevel(val node: TocNodeDto?, val children: List<TocNodeDto>, val booksUnder: Map<String, List<String>>) {

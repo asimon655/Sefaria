@@ -6,10 +6,8 @@ import org.asimon.sefaria.data.local.CacheEntry
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
-import org.asimon.sefaria.data.repo.AppError
-import org.asimon.sefaria.data.repo.BuildInfo
-import org.asimon.sefaria.data.repo.CachedFetcher
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.datasource.BuildInfo
+import org.asimon.sefaria.data.datasource.CachedFetcher
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

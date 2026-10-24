@@ -1,4 +1,4 @@
-package org.asimon.sefaria.data.repo
+package org.asimon.sefaria.data.datasource
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive

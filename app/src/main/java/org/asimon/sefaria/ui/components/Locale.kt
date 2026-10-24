@@ -7,7 +7,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import org.asimon.sefaria.R
 import org.asimon.sefaria.data.ThemeMode
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 
 /**
  * Interface language. It follows the device (or the per-app language on Android 13+) through

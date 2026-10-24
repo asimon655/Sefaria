@@ -6,6 +6,9 @@ import org.asimon.sefaria.core.ref.Book
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.BookDto
 import org.asimon.sefaria.data.remote.SefariaJson
+import org.asimon.sefaria.data.Load
+import org.asimon.sefaria.data.datasource.CachedFetcher
+import org.asimon.sefaria.data.map
 
 /**
  * Books' schemas, versions and metadata (/v1/books), from the downloaded library or the response

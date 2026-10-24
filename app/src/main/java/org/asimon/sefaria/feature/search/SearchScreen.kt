@@ -64,9 +64,9 @@ import org.asimon.sefaria.SearchRoute
 import org.asimon.sefaria.core.text.SearchText
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 import org.asimon.sefaria.data.repo.TocRepository
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.Load
 import org.asimon.sefaria.data.repo.SearchRepository
 import org.asimon.sefaria.ui.components.BackButton
 import org.asimon.sefaria.ui.components.ErrorMessage

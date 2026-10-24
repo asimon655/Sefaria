@@ -7,8 +7,7 @@ import okhttp3.OkHttpClient
 import okio.Buffer
 import org.asimon.sefaria.data.local.FileKind
 import org.asimon.sefaria.data.local.ListedFile
-import org.asimon.sefaria.data.repo.AppError
-import org.asimon.sefaria.data.repo.FileDownloader
+import org.asimon.sefaria.data.datasource.FileDownloader
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

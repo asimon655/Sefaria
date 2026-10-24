@@ -11,7 +11,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.LayoutDirection
 import org.asimon.sefaria.feature.search.SearchBox
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
 import androidx.compose.foundation.clickable
@@ -60,7 +60,7 @@ import org.asimon.sefaria.data.remote.TocNodeDto
 import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.repo.TocLevel
 import androidx.compose.runtime.remember
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.Load
 import org.asimon.sefaria.ui.components.BackButton
 import org.asimon.sefaria.ui.components.ErrorMessage
 import org.asimon.sefaria.ui.components.Loading

@@ -26,6 +26,8 @@ import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.local.ListedFile
 import org.asimon.sefaria.data.remote.Api
 import java.util.concurrent.ConcurrentHashMap
+import org.asimon.sefaria.data.AppError
+import org.asimon.sefaria.data.datasource.FileDownloader
 
 /** A download waiting for its turn, in progress, being verified, or the error that stopped it. */
 sealed interface DownloadState {

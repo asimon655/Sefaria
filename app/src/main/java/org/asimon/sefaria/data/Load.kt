@@ -1,4 +1,4 @@
-package org.asimon.sefaria.data.repo
+package org.asimon.sefaria.data
 
 import org.asimon.sefaria.data.remote.ApiError
 

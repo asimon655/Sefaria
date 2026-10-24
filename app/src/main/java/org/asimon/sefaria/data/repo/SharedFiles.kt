@@ -9,6 +9,8 @@ import org.asimon.sefaria.data.local.FileKind
 import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.local.ListedFile
 import org.asimon.sefaria.data.remote.Api
+import org.asimon.sefaria.data.AppError
+import org.asimon.sefaria.data.datasource.FileDownloader
 
 /**
  * The library files every downloaded book relies on (SERVER_SPEC §7): the dictionary book files are

@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 import org.asimon.sefaria.data.Settings
 import org.asimon.sefaria.data.remote.CalendarDto
 import org.asimon.sefaria.data.repo.CalendarRepository
-import org.asimon.sefaria.data.repo.Load
+import org.asimon.sefaria.data.Load
 import org.asimon.sefaria.ui.components.ErrorMessage
 import org.asimon.sefaria.ui.components.text
 import java.time.LocalDate

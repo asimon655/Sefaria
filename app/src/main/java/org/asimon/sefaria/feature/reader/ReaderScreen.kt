@@ -35,7 +35,7 @@ import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.ui.components.label
 import org.asimon.sefaria.ui.components.hebrewUi
 import org.asimon.sefaria.ui.components.text
-import org.asimon.sefaria.data.repo.AppError
+import org.asimon.sefaria.data.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
 import android.content.Intent

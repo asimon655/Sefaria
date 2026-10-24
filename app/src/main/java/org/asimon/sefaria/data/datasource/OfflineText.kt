@@ -1,7 +1,8 @@
-package org.asimon.sefaria.data.repo
+package org.asimon.sefaria.data.datasource
 
 import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.data.local.LibraryReader
+import org.asimon.sefaria.data.SectionText
 
 /**
  * Section text from the downloaded library (SERVER_SPEC §7), as /v1/text returns it, with its link

@@ -13,7 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.data.repo.DownloadRepository
-import org.asimon.sefaria.data.repo.CachedFetcher
+import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.work.DownloadWorker
 import org.asimon.sefaria.work.MaintenanceWorker
 import javax.inject.Inject

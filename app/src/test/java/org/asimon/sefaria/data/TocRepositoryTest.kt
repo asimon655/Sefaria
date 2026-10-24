@@ -11,11 +11,10 @@ import org.asimon.sefaria.data.local.importToc
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.SefariaJson
 import org.asimon.sefaria.data.remote.TocDto
-import org.asimon.sefaria.data.repo.BuildInfo
-import org.asimon.sefaria.data.repo.CachedFetcher
+import org.asimon.sefaria.data.datasource.BuildInfo
+import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.data.repo.CompletionRepository
 import org.asimon.sefaria.data.repo.TocRepository
-import org.asimon.sefaria.data.repo.Load
 import org.asimon.sefaria.data.remote.TocNodeDto
 import kotlinx.coroutines.runBlocking
 import org.asimon.sefaria.fixture

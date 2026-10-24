@@ -1,4 +1,4 @@
-package org.asimon.sefaria.data.repo
+package org.asimon.sefaria.data.datasource
 
 import android.util.Log
 import kotlinx.coroutines.CancellationException
@@ -8,6 +8,9 @@ import org.asimon.sefaria.data.local.OfflineSource
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
+import org.asimon.sefaria.data.Load
+import org.asimon.sefaria.data.AppError
+import org.asimon.sefaria.data.toAppError
 
 /** The build the server is serving now (from /v1/manifest); null until known (e.g. offline). */
 class BuildInfo {
