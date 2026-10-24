@@ -163,15 +163,28 @@
     <string name="delete">Delete</string>
     <string name="delete_download_title">Delete this download?</string>
     <string name="delete_download_body">%1$s will be removed from this phone. You can download it again; until then, reading it needs the internet.</string>
-    <string name="download_extra">The first download also brings %1$s, once: connections and offline search.</string>
+    <string name="download_extra">The first download also brings %1$s, once: the dictionary and word forms for offline search.</string>
     <string name="delete_downloaded_n">Delete the %1$d downloaded books</string>
     <string name="delete_group_title">Delete these downloads?</string>
     <string name="delete_group_body">%1$d books (%2$s) in %3$s will be removed from this phone. You can download them again; until then, reading them needs the internet.</string>
     <string name="downloaded_books">%1$d books downloaded · %2$s</string>
     <string name="delete_all_downloads">Delete all downloads</string>
-    <string name="delete_all_body">All %1$d downloaded books (%2$s) will be removed from this phone. You can download them again; until then, reading needs the internet.</string>
+    <string name="delete_all_body">All %1$d downloaded books and the optional downloads (%2$s) will be removed from this phone. You can download them again; until then, reading needs the internet.</string>
     <!-- download notification -->
     <string name="notification_channel_downloads">Downloads</string>
     <string name="notification_downloading">Downloading books</string>
     <string name="notification_books_done">%1$d of %2$d books</string>
+    <!-- optional downloads: connections and search filters -->
+    <string name="optional_files">Optional downloads</string>
+    <string name="optional_also">Also download:</string>
+    <string name="optional_button">%1$s · %2$s</string>
+    <string name="optional_links_title">Offline connections</string>
+    <string name="optional_links_body">Commentaries and sources for every verse, without the internet</string>
+    <string name="optional_filters_title">Faster offline search</string>
+    <string name="optional_filters_body">Skips books that lack the words you search for</string>
+    <string name="optional_missing">Not downloaded: %1$s. You can download them in Settings.</string>
+    <string name="delete_optional_title">Delete %1$s?</string>
+    <string name="delete_optional_body">The file (%1$s) will be removed from this phone. You can download it again in Settings.</string>
+    <string name="prefix_offline_title">Prefix search needs the internet</string>
+    <string name="prefix_offline_body">Searching for word* works online only. Offline, search for whole words.</string>
 </resources>

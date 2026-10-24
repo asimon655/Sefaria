@@ -15,7 +15,8 @@ object FileKind {
     const val BOOK = "book" // <sha256>.sfb
     const val INDEX = "index" // <sha256>.sfi, a book's search index
     const val DICT = "dict" // <sha256>.dict, the dictionary book files are compressed with
-    const val LINKS = "links" // <sha256>.sfl
+    const val LINKS = "links" // <sha256>.sfl, optional
+    const val FILTERS = "filters" // <sha256>.sfw, the word filters for offline search, optional
     const val FORMS = "forms" // <sha256>.sff as listed, inflated to <sha256>.forms when installed
 }
 
@@ -48,7 +49,7 @@ abstract class InstalledDao {
     @Query("SELECT * FROM installed_file")
     abstract suspend fun installedFiles(): List<InstalledFile>
 
-    /** A book's book or index file, or (with no book) the dictionary, links file or forms table. */
+    /** A book's book or index file, or (with no book) the dictionary, links file, forms table or filter file. */
     @Query("SELECT * FROM installed_file WHERE kind = :kind AND book = :book LIMIT 1")
     abstract suspend fun installed(kind: String, book: String = ""): InstalledFile?
 

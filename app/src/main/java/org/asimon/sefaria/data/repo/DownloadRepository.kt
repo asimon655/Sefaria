@@ -43,7 +43,8 @@ sealed interface DownloadState {
 /**
  * Book downloads (SERVER_SPEC §7), in the app scope with progress, and the downloaded books. A
  * book download fetches the book's file and index file (for offline search) as [listing] lists
- * them, and brings the [shared] files (dictionary, links file, forms table) up to date.
+ * them, and brings the [shared] files every book needs (dictionary, forms table) up to date; the
+ * optional links and filter files download only when asked (SharedFiles.downloadOptional).
  *
  * A book goes through two queues: the download queue ([PARALLEL] at once) fetches its files,
  * then hands it to the verify queue ([VERIFY_PARALLEL] at once), which checks their checksums and
@@ -192,7 +193,6 @@ class DownloadRepository(
         // Failures from here on leave the book readable: offline search then scans it, and its
         // connections come from the server.
         val index = f.indexFile?.takeIf { ix -> downloader.fetch(api.libraryPath(ix.file), ix, library.files.partFor(ix.file)) == null }
-        shared.ensureLinks()
         shared.ensureForms()
         return Fetched.Files(f, index)
     }
@@ -221,11 +221,12 @@ class DownloadRepository(
         library.installer.delete(book)
     }
 
-    /** Deletes the downloads of [books]; null: every downloaded book. */
+    /** Deletes the downloads of [books]; null: everything downloaded, the optional files too. */
     suspend fun deleteAll(books: Collection<String>? = null) {
         val titles = books ?: library.files.installedNow().keys
         cancelAll(titles)
         library.installer.deleteAll(titles)
+        if (books == null) for (kind in listOf(FileKind.LINKS, FileKind.FILTERS)) shared.deleteOptional(kind)
     }
 
     companion object {

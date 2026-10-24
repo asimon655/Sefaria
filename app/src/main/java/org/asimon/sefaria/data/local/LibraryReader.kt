@@ -22,17 +22,19 @@ interface BookReader {
     suspend fun index(title: String): IndexFile?
     /** The lines of block [i] of [t]; null if the file can't be read (deleted meanwhile). */
     suspend fun block(f: BookFile, t: BookText, i: Int): List<String>?
+    /** A book's word filter, if the filter file has one for its installed book file. */
+    suspend fun filter(title: String): BookFilter?
 }
 
 /**
  * Reads the downloaded library (SERVER_SPEC §7) in [files]: book files (<sha256>.sfb), their index
  * files (<sha256>.sfi), the dictionary they were compressed with (<sha256>.dict), the links file
- * (<sha256>.sfl) and the Hebrew forms table, inflated (<sha256 of the download>.forms). Reads
- * inflate one block at a time.
+ * (<sha256>.sfl), the Hebrew forms table, inflated (<sha256 of the download>.forms), and the word
+ * filter file (<sha256>.sfw). Reads inflate one block at a time.
  *
  * What stays in memory, and for how long:
  * - for the app's lifetime, what every read needs: the dictionaries, the links file's header,
- *   the forms table's line offsets;
+ *   the forms table's line offsets, the filter file's table of books (the file is mapped);
  * - in small LRUs, what the reader is reading: the last [BOOKS] book headers, [BLOCKS] blocks,
  *   [RECORDS] books' link records and [METAS] link entries;
  * - nothing for search: it reads through a session of its own ([openBook], [openIndex],
@@ -51,6 +53,7 @@ class LibraryReader(private val files: LibraryFiles) : OfflineSource, BookReader
     @Volatile private var dicts: Map<String, ByteArray> = emptyMap()
     @Volatile private var links: LinksFile? = null
     @Volatile private var forms: Pair<String, FormsFile>? = null // (sha256 of the download, table)
+    @Volatile private var filters: FiltersFile? = null
 
     // caches; each guarded by synchronized on itself
     private val books = lru<String, BookFile>(BOOKS) // title -> opened book file
@@ -87,6 +90,18 @@ class LibraryReader(private val files: LibraryFiles) : OfflineSource, BookReader
     }
 
     suspend fun linksFile(): LinksFile? = io { links }
+
+    /** The filter file's sha256 (its name), if one is installed. */
+    suspend fun filtersSha(): String? = io { filters?.file?.name?.substringBefore('.') }
+
+    /** The word filter of [title]'s installed book file, if the filter file has one. */
+    override suspend fun filter(title: String): BookFilter? = io {
+        val f = filters ?: return@io null
+        files.row(FileKind.BOOK, title)?.let { f.filter(it.file) }
+    }
+
+    /** The word filter of book file [sfb], if the filter file has one (search sessions know the file). */
+    suspend fun filterOf(sfb: String): BookFilter? = io { filters?.filter(sfb) }
 
     /** A downloaded book's index file, opened now and not kept (search sessions keep their own). */
     override suspend fun index(title: String): IndexFile? = io {
@@ -179,6 +194,7 @@ class LibraryReader(private val files: LibraryFiles) : OfflineSource, BookReader
                 synchronized(metas) { metas.clear() }
             }
             FileKind.FORMS -> forms = if (present) sha(row) to FormsFile(files.file(row.file)) else forms?.takeIf { it.first != sha(row) }
+            FileKind.FILTERS -> filters = if (present) FiltersFile(files.file(row.file)) else filters?.takeIf { it.file.name != row.file }
         }
     }
 
@@ -207,7 +223,7 @@ class LibraryReader(private val files: LibraryFiles) : OfflineSource, BookReader
     }
 
     /**
-     * Loads what every book shares: the dictionaries, links file and forms table. A file that
+     * Loads what every book shares: the dictionaries, links file, forms table and filter file. A file that
      * is missing or unreadable loses its row (download it again); book and index files open
      * when read.
      */
@@ -215,13 +231,14 @@ class LibraryReader(private val files: LibraryFiles) : OfflineSource, BookReader
         files.dir.mkdirs()
         val d = HashMap<String, ByteArray>()
         for (r in files.rows()) {
-            if (r.kind != FileKind.DICT && r.kind != FileKind.LINKS && r.kind != FileKind.FORMS) continue
+            if (r.kind != FileKind.DICT && r.kind != FileKind.LINKS && r.kind != FileKind.FORMS && r.kind != FileKind.FILTERS) continue
             val f = files.file(r.file)
             try {
                 when (r.kind) {
                     FileKind.DICT -> d[sha(r)] = f.readBytes()
                     FileKind.LINKS -> links = LinksFile(f)
                     FileKind.FORMS -> forms = sha(r) to FormsFile(f)
+                    FileKind.FILTERS -> filters = FiltersFile(f)
                 }
             } catch (_: Exception) {
                 files.remove(listOf(r))

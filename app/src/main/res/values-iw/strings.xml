@@ -163,15 +163,28 @@
     <string name="delete">מחיקה</string>
     <string name="delete_download_title">למחוק את ההורדה?</string>
     <string name="delete_download_body">%1$s יימחק מהטלפון. אפשר להוריד אותו שוב; עד אז, כדי לקרוא בו צריך אינטרנט.</string>
-    <string name="download_extra">ההורדה הראשונה מביאה גם %1$s, פעם אחת: קישורים וחיפוש ללא רשת.</string>
+    <string name="download_extra">ההורדה הראשונה מביאה גם %1$s, פעם אחת: מילון וצורות מילים לחיפוש ללא רשת.</string>
     <string name="delete_downloaded_n">מחיקת %1$d הספרים שהורדו</string>
     <string name="delete_group_title">למחוק את ההורדות?</string>
     <string name="delete_group_body">%1$d ספרים (%2$s) ב%3$s יימחקו מהטלפון. אפשר להוריד אותם שוב; עד אז, כדי לקרוא בהם צריך אינטרנט.</string>
     <string name="downloaded_books">%1$d ספרים הורדו · %2$s</string>
     <string name="delete_all_downloads">מחיקת כל ההורדות</string>
-    <string name="delete_all_body">כל %1$d הספרים שהורדו (%2$s) יימחקו מהטלפון. אפשר להוריד אותם שוב; עד אז, כדי לקרוא צריך אינטרנט.</string>
+    <string name="delete_all_body">כל %1$d הספרים שהורדו וההורדות לבחירה (%2$s) יימחקו מהטלפון. אפשר להוריד אותם שוב; עד אז, כדי לקרוא צריך אינטרנט.</string>
     <!-- download notification -->
     <string name="notification_channel_downloads">הורדות</string>
     <string name="notification_downloading">מוריד ספרים</string>
     <string name="notification_books_done">%1$d מתוך %2$d ספרים</string>
+    <!-- optional downloads: connections and search filters -->
+    <string name="optional_files">הורדות לבחירה</string>
+    <string name="optional_also">להוריד גם:</string>
+    <string name="optional_button">%1$s · %2$s</string>
+    <string name="optional_links_title">קישורים ללא רשת</string>
+    <string name="optional_links_body">פרשנים ומקורות לכל פסוק, בלי אינטרנט</string>
+    <string name="optional_filters_title">חיפוש מהיר ללא רשת</string>
+    <string name="optional_filters_body">מדלג על ספרים שאין בהם את המילים שחיפשתם</string>
+    <string name="optional_missing">לא הורדו: %1$s. אפשר להוריד אותם בהגדרות.</string>
+    <string name="delete_optional_title">למחוק את %1$s?</string>
+    <string name="delete_optional_body">הקובץ (%1$s) יימחק מהטלפון. אפשר להוריד אותו שוב בהגדרות.</string>
+    <string name="prefix_offline_title">חיפוש לפי תחילית דורש אינטרנט</string>
+    <string name="prefix_offline_body">חיפוש מילה* עובד רק עם חיבור. ללא רשת, חפשו מילים שלמות.</string>
 </resources>

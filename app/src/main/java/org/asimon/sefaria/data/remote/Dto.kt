@@ -262,6 +262,8 @@ data class LibraryDto(
     val links: LibraryFileDto? = null,
     /** The Hebrew forms table (zlib), for offline search. */
     val forms: LibraryFileDto? = null,
+    /** The word filters of every book (an optional download), for offline search. */
+    val filters: LibraryFileDto? = null,
 )
 
 /**

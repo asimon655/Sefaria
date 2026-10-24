@@ -141,6 +141,8 @@ fun ErrorMessage(error: AppError, onRetry: (() -> Unit)?, modifier: Modifier = M
             Triple(Art.Offline, stringResource(R.string.offline_title), stringResource(R.string.offline_body))
         error == AppError.Network ->
             Triple(Art.Offline, stringResource(R.string.server_down_title), stringResource(R.string.server_down_body))
+        error == AppError.PrefixOffline ->
+            Triple(Art.Offline, stringResource(R.string.prefix_offline_title), error.text())
         else -> Triple(Art.Error, stringResource(R.string.error_title), error.text())
     }
     EmptyState(art, title, body, modifier, compact) {

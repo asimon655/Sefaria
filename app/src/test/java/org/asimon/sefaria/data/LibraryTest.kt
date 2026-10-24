@@ -7,6 +7,9 @@ import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.core.text.Expansion
 import org.asimon.sefaria.core.text.SearchMatch
 import org.asimon.sefaria.core.text.SearchText
+import org.asimon.sefaria.data.local.BookReader
+import org.asimon.sefaria.data.local.FileKind
+import org.asimon.sefaria.data.local.FiltersFile
 import org.asimon.sefaria.data.local.IndexFile
 import org.asimon.sefaria.data.remote.SearchHitDto
 import org.asimon.sefaria.data.local.BookFile
@@ -26,6 +29,7 @@ import org.asimon.sefaria.data.remote.LibraryDto
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -79,7 +83,7 @@ class LibraryTest {
         assertEquals(File(tmp.root, g.file).length() + tmp.root.listFiles { f -> f.name.endsWith(".sfi") }!!
             .single { org.asimon.sefaria.data.local.IndexFile(it).header.book == "Genesis" }.length(), g.bytes)
         // the library's size is every installed file's
-        assertEquals(tmp.root.listFiles { f -> f.extension in setOf("sfb", "sfi", "sfl", "dict", "forms") }!!.sumOf { it.length() }, store.files.bytes.first())
+        assertEquals(tmp.root.listFiles { f -> f.extension in setOf("sfb", "sfi", "sfl", "sfw", "dict", "forms") }!!.sumOf { it.length() }, store.files.bytes.first())
         assertNull(store.reader.get("Genesis", "text:Genesis.1")) // only metadata is served as JSON
         assertEquals(3, books.getValue("Genesis").dto.versions.size)
     }
@@ -135,7 +139,6 @@ class LibraryTest {
     fun searchMatchesServer() = runTest {
         for ((name, q, x, only) in listOf(
             Quad("search-he", "he1", Expansion(), searchOrder),
-            Quad("search-prefix", "rash*", Expansion(), searchOrder),
             Quad("search-phrase-en", "\"en0 x\"", Expansion(), searchOrder),
             Quad("search-forms", "שבת", Expansion(), searchOrder),
             Quad("search-forms-sheh", "שה", Expansion(), searchOrder),
@@ -147,10 +150,70 @@ class LibraryTest {
             val want = SefariaJson.decodeFromString(SearchDto.serializer(), server(name))
             assertEquals(name, want.hits, libraryOrder(q, want.lang, x, only))
         }
-        // paging: after the first hit's slot, the next one
-        val rash = SearchMatch.expand(SearchText.parse("rash*"), null)
-        val rashi = offlineSearch.search(books.getValue("Rashi on Genesis"), "he", rash, 1, 0, 1)!!
-        assertEquals(listOf(1), rashi.map { it.first })
+        // paging: after a hit's slot, the next one, for a word on two lines of a book
+        val (title, lang, word) = searchOrder.flatMap { t ->
+            val f = store.reader.book(t)!!
+            f.header.texts.mapNotNull { text ->
+                val lines = text.blocks.indices.flatMap { store.reader.block(f, text, it)!! }
+                lines.flatMap { SearchMatch.tokens(it).distinct() }.groupingBy { it }.eachCount()
+                    .entries.firstOrNull { it.value >= 2 }?.let { Triple(t, text.lang, it.key) }
+            }
+        }.first()
+        val q = SearchMatch.expand(SearchText.parse(word), null)
+        val all = offlineSearch.search(books.getValue(title), lang, q, 1, -1, 50)!!
+        assertTrue("$title $word", all.size >= 2)
+        assertEquals(all[1], offlineSearch.search(books.getValue(title), lang, q, 1, all[0].first, 1)!!.single())
+    }
+
+    @Test
+    fun prefixSearchIsOnlineOnly() = runTest {
+        val q = SearchMatch.expand(SearchText.parse("rash*"), null)
+        assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking { offlineSearch.search(books.getValue("Rashi on Genesis"), "he", q, 1, -1, 10) }
+        }
+    }
+
+    @Test
+    fun filterHoldsEveryWord() = runTest {
+        for (t in searchOrder) {
+            val f = store.reader.book(t)!!
+            val filter = store.reader.filter(t)!!
+            for (text in f.header.texts) for (bi in text.blocks.indices) for (line in store.reader.block(f, text, bi)!!) {
+                for (w in SearchMatch.tokens(line)) assertTrue("$t $w", filter.mayHold(w))
+            }
+        }
+    }
+
+    @Test
+    fun filterRulesOutAbsentWords() = runTest {
+        // about 1 in 256 absent words passes; a Kotlin port that read the wrong slots would pass about half
+        val filter = store.reader.filter("Genesis")!!
+        val passed = (0 until 10_000).count { filter.mayHold("absent$it") }
+        assertTrue("$passed of 10000", passed < 100)
+    }
+
+    @Test
+    fun searchSkipsBooksTheFilterRulesOut() = runTest {
+        val opened = mutableListOf<String>()
+        val counting = object : BookReader by store.reader {
+            override suspend fun index(title: String) = store.reader.index(title).also { opened += title }
+        }
+        val search = OfflineSearch(counting)
+        val q = SearchMatch.expand(SearchText.parse("שבת"), store.reader.forms())
+        for (t in searchOrder) search.search(books.getValue(t), "he", q, 1, -1, 50)
+        assertEquals(listOf("Leviticus"), opened) // only Leviticus has שבת
+    }
+
+    @Test
+    fun mulHiIsTheUnsignedHighProduct() {
+        val r = java.util.Random(7)
+        val two64 = java.math.BigInteger.ONE.shiftLeft(64)
+        fun u(x: Long) = java.math.BigInteger.valueOf(x).let { if (x < 0) it + two64 else it }
+        repeat(1000) {
+            val a = r.nextLong()
+            val b = r.nextLong()
+            assertEquals((u(a) * u(b)).shiftRight(64).toLong(), FiltersFile.mulHi(a, b))
+        }
     }
 
     private data class Quad(val name: String, val q: String, val x: Expansion, val only: List<String>)
@@ -173,11 +236,15 @@ class LibraryTest {
     }
 
     @Test
-    fun deleteDropsLinksWithLastBook() = runTest {
+    fun deleteKeepsTheOptionalFiles() = runTest {
         for (t in searchOrder) store.installer.delete(t)
         assertTrue(store.files.installedNow().isEmpty())
+        assertNull(store.reader.forms()) // the forms table goes with the last book
+        assertTrue(store.reader.linksFile() != null && store.reader.filtersSha() != null)
+        store.installer.deleteOptional(FileKind.LINKS)
+        store.installer.deleteOptional(FileKind.FILTERS)
         assertNull(store.reader.linksFile())
-        assertNull(store.reader.forms())
+        assertNull(store.reader.filtersSha())
         assertNull(offlineLinks.links(ref("Genesis", "Genesis 1:1")))
     }
 

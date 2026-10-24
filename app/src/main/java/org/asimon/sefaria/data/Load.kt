@@ -16,6 +16,8 @@ sealed interface AppError {
     data class Server(val status: Int, val detail: String) : AppError
     data class BadResponse(val detail: String) : AppError
     data object NoText : AppError
+    /** A word* search with no connection: offline search doesn't do prefixes. */
+    data object PrefixOffline : AppError
 }
 
 fun ApiError.toAppError(): AppError = when (this) {

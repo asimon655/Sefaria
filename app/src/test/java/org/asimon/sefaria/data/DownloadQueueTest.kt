@@ -17,6 +17,7 @@ import okhttp3.OkHttpClient
 import okio.Buffer
 import org.asimon.sefaria.data.local.CacheDao
 import org.asimon.sefaria.data.local.CacheEntry
+import org.asimon.sefaria.data.local.FileKind
 import org.asimon.sefaria.data.local.Library
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.datasource.BuildInfo
@@ -31,6 +32,7 @@ import org.asimon.sefaria.testDb
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -80,7 +82,7 @@ class DownloadQueueTest {
         db.close()
     }
 
-    private class Parts(val downloads: DownloadRepository, val listing: LibraryListing)
+    private class Parts(val downloads: DownloadRepository, val listing: LibraryListing, val shared: SharedFiles, val store: Library)
 
     private fun repo() = parts().downloads
 
@@ -91,11 +93,9 @@ class DownloadQueueTest {
         val store = Library(File(tmp.root, "library"), db.installed())
         val listing = LibraryListing(api, CachedFetcher(api, NoCache, BuildInfo(), store.reader), db.listing(), scope)
         val downloader = FileDownloader(client, base)
-        val downloads = DownloadRepository(
-            api, listing, SharedFiles(api, listing, store, downloader, scope), store, downloader, scope,
-            onQueued = { queued++ },
-        )
-        return Parts(downloads, listing)
+        val shared = SharedFiles(api, listing, store, downloader, scope)
+        val downloads = DownloadRepository(api, listing, shared, store, downloader, scope, onQueued = { queued++ })
+        return Parts(downloads, listing, shared, store)
     }
 
     private fun listing() = SefariaJson.decodeFromString(LibraryDto.serializer(), File(src, "manifest.json").readText())
@@ -109,7 +109,27 @@ class DownloadQueueTest {
         withTimeout(10_000) { r.awaitIdle() }
         withTimeout(10_000) { r.installed.first { "Genesis" in it } }
         assertFalse(r.hasPending())
-        assertEquals(0L, p.listing.extra.first { it == 0L }) // the links file, forms table and dictionary came with it
+        assertEquals(0L, p.listing.extra.first { it == 0L }) // the forms table and dictionary came with it
+        // the optional files didn't: they are offered, with their sizes, until asked for
+        val m = listing()
+        val offered = p.shared.optional.first { it.size == 2 }
+        assertEquals(listOf(FileKind.FILTERS to m.filters!!.bytes, FileKind.LINKS to m.links!!.bytes), offered.map { it.kind to it.bytes })
+        assertTrue(offered.none { it.installed })
+        assertNull(p.store.reader.linksFile())
+    }
+
+    @Test
+    fun optionalFilesDownloadWhenAsked() = runBlocking {
+        val p = parts()
+        p.listing.refresh()
+        p.shared.downloadOptional(FileKind.LINKS)
+        p.shared.downloadOptional(FileKind.FILTERS)
+        withTimeout(10_000) { p.shared.optional.first { it.size == 2 && it.all { o -> o.installed && !o.downloading } } }
+        assertEquals(listing().links!!.sha256, p.store.reader.linksSha())
+        assertEquals(listing().filters!!.sha256, p.store.reader.filtersSha())
+        p.shared.deleteOptional(FileKind.FILTERS)
+        withTimeout(10_000) { p.shared.optional.first { l -> l.single { it.kind == FileKind.FILTERS }.installed.not() } }
+        assertNull(p.store.reader.filtersSha())
     }
 
     @Test

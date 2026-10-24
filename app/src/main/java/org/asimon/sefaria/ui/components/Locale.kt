@@ -47,6 +47,7 @@ fun AppError.text(): String = when (this) {
     is AppError.Server -> stringResource(R.string.error_server, status)
     is AppError.BadResponse -> stringResource(R.string.error_bad_response)
     AppError.NoText -> stringResource(R.string.error_no_text)
+    AppError.PrefixOffline -> stringResource(R.string.prefix_offline_body)
 }
 
 @Composable

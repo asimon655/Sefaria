@@ -84,6 +84,8 @@ class SearchRepository(
 
     private suspend fun offlinePage(q: String, filter: SearchFilter, cursor: String?, limit: Int): Load<SearchPage> {
         val terms = SearchText.parse(q)
+        // word* has no index path offline: every block of every book would be read
+        if (terms.any { it.prefix }) return Load.Err(AppError.PrefixOffline)
         val lang = filter.lang ?: if (SearchText.isHebrew(q)) "he" else "en"
         val s = session()
         val order = s.titles

@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.asimon.sefaria.core.ref.Book
 import org.asimon.sefaria.data.local.BookFile
+import org.asimon.sefaria.data.local.BookFilter
 import org.asimon.sefaria.data.local.BookReader
 import org.asimon.sefaria.data.local.BookText
 import org.asimon.sefaria.data.local.IndexFile
@@ -15,7 +16,7 @@ import org.asimon.sefaria.data.local.SearchBook
 /**
  * What offline search keeps while the results page is open, apart from the reader's caches:
  * the downloaded books in search order with their files (one query, not one per book per page),
- * their category paths, the book and index files it opened, the last [BLOCKS] blocks it read,
+ * their category paths, the book and index files and word filters it opened, the last [BLOCKS] blocks it read,
  * and the last [BOOKS] books it decoded for hits. Searching the whole library opens thousands
  * of index files; keeping them here makes the next page and the next query fast, and lets them
  * all go when the page closes ([SearchRepository.release]), instead of for the app's lifetime.
@@ -32,6 +33,7 @@ class SearchSession private constructor(
     private val files = books.associateBy { it.book }
     private val opened = HashMap<String, BookFile?>() // title -> book file; null: unreadable
     private val indexes = HashMap<String, IndexFile?>() // title -> index file; null: none
+    private val filters = HashMap<String, BookFilter?>() // title -> word filter; null: none
     private val blocks = lru<String, List<String>>(BLOCKS)
     private val decoded = lru<String, Book>(BOOKS)
     @Volatile private var paths: Map<String, String>? = null
@@ -53,6 +55,12 @@ class SearchSession private constructor(
         val file = files[title]?.index?.takeIf { it.isNotEmpty() }
         val ix = if (file == null) null else withContext(Dispatchers.IO) { reader.openIndex(file, title) }
         return synchronized(this) { indexes.getOrPut(title) { ix } }
+    }
+
+    override suspend fun filter(title: String): BookFilter? {
+        synchronized(this) { if (title in filters) return filters[title] }
+        val f = files[title]?.file?.let { reader.filterOf(it) }
+        return synchronized(this) { filters.getOrPut(title) { f } }
     }
 
     override suspend fun block(f: BookFile, t: BookText, i: Int): List<String>? {

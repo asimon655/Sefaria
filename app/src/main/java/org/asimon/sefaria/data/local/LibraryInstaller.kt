@@ -99,14 +99,38 @@ class LibraryInstaller(private val files: LibraryFiles, private val reader: Libr
         null
     }
 
-    /** Removes a downloaded book; the links file goes with the last one. */
+    /** Installs a verified filter file download, replacing the older one. */
+    suspend fun installFilters(part: File, file: String): String? = writing {
+        val norm = try {
+            FiltersFile(part).norm
+        } catch (e: Exception) {
+            part.delete()
+            return@writing "not a filter file: ${e.message}"
+        }
+        if (norm != IndexFile.NORMALIZE_VERSION) { // built for another normaliser: its words aren't ours
+            part.delete()
+            return@writing "filter file of another normaliser"
+        }
+        val dst = files.file(file)
+        if (!part.renameTo(dst)) return@writing "cannot install $file"
+        files.replace(listOfNotNull(files.row(FileKind.FILTERS)?.takeIf { it.file != file }), InstalledFile(file, FileKind.FILTERS, bytes = dst.length()))
+        null
+    }
+
+    /** Removes a downloaded book; the forms table goes with the last one. */
     suspend fun delete(title: String) = deleteAll(listOf(title))
 
-    /** Removes downloaded books in one go; the links file and forms table go with the last one. */
+    /**
+     * Removes downloaded books in one go; the forms table goes with the last one. The optional
+     * files (links, filters) stay until [deleteOptional].
+     */
     suspend fun deleteAll(titles: Collection<String>) = writing {
         files.remove(files.rowsOf(titles.toSet()))
-        if (!files.hasBooks()) files.remove(listOfNotNull(files.row(FileKind.LINKS), files.row(FileKind.FORMS)))
+        if (!files.hasBooks()) files.remove(listOfNotNull(files.row(FileKind.FORMS)))
     }
+
+    /** Removes the downloaded optional file of [kind] ([FileKind.LINKS] or [FileKind.FILTERS]), if any. */
+    suspend fun deleteOptional(kind: String) = writing { files.remove(listOfNotNull(files.row(kind))) }
 
     // The reader's shared files first (a book file needs its dictionary), then the write.
     private suspend fun <T> writing(block: suspend () -> T): T {

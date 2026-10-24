@@ -118,7 +118,7 @@ fun LibraryScreen(
                     s.level?.let { level ->
                         val name = level.node?.let { pick(it.en, it.he) } ?: stringResource(R.string.whole_library)
                         val books = remember(level) { level.books }
-                        GroupDownload(name, books, downloads, asButton = true)
+                        GroupDownload(name, books, downloads, asButton = true, wholeLibrary = level.node == null)
                     }
                 },
             )

@@ -8,6 +8,8 @@ import org.asimon.sefaria.core.ref.Ref
 import org.asimon.sefaria.core.text.Clause
 import org.asimon.sefaria.core.text.Kind
 import org.asimon.sefaria.core.text.SearchMatch
+import org.asimon.sefaria.core.text.Word
+import org.asimon.sefaria.data.local.BookFilter
 import org.asimon.sefaria.data.local.BookReader
 import org.asimon.sefaria.data.local.IndexFile
 import org.asimon.sefaria.data.remote.SearchHitDto
@@ -20,9 +22,10 @@ import org.asimon.sefaria.data.remote.SearchHitDto
 class OfflineSearch(private val reader: BookReader) {
     /**
      * Up to [limit] hits after slot [after] in reading order, in [lang]'s default version, that match
-     * [q] in [tier] 1 (every clause exactly) or 2 (the rest). The book's index file picks the blocks
-     * that may match; without one (or for a word* clause) every block is read. Each hit comes with
-     * its slot (for the paging cursor). Null if the book is not downloaded.
+     * [q] in [tier] 1 (every clause exactly) or 2 (the rest). The book's word filter, if there is
+     * one, rules out a book that lacks a word; then its index file picks the blocks that may match
+     * (without one every block is read). Each hit comes with its slot (for the paging cursor). Null
+     * if the book is not downloaded. [q] has no word* clause: offline search doesn't do prefixes.
      */
     suspend fun search(book: Book, lang: String, q: List<Clause>, tier: Int, after: Int, limit: Int) =
         search(book.title, { book }, lang, q, tier, after, limit)
@@ -35,7 +38,10 @@ class OfflineSearch(private val reader: BookReader) {
         reader: BookReader = this.reader,
     ): List<Pair<Int, SearchHitDto>>? =
         withContext(Dispatchers.Default) {
-            val candidates = reader.index(title)?.let { candidateBlocks(it, lang, q, exact = tier == 1) }
+            require(q.none { c -> c.any { it.prefix } }) { "word* is searched online only" }
+            val exact = tier == 1
+            if (reader.filter(title)?.let { mayMatch(it, q, exact) } == false) return@withContext emptyList()
+            val candidates = reader.index(title)?.let { candidateBlocks(it, lang, q, exact) }
             if (candidates != null && candidates.isEmpty()) return@withContext emptyList()
             val f = reader.book(title) ?: return@withContext null
             val t = f.text(lang) ?: return@withContext emptyList()
@@ -62,21 +68,26 @@ class OfflineSearch(private val reader: BookReader) {
             out
         }
 
+    // Whether the book may hold every word of every clause (the word itself for [exact], else
+    // the word or one of its forms), by its word filter: false only if it can't match.
+    private fun mayMatch(f: BookFilter, q: List<Clause>, exact: Boolean): Boolean =
+        q.all { c -> c.all { w -> alternatives(w, exact).any(f::mayHold) } }
+
+    private fun alternatives(w: Word, exact: Boolean) = if (exact) listOf(w.text) else listOf(w.text) + w.forms.keys
+
     // The blocks that may hold a match: for each clause, the blocks holding every word (in one of
-    // its forms, or only the word itself for [exact]), intersected across clauses. Null when a
-    // clause can't be looked up (word*), and every block must be read.
-    private fun candidateBlocks(ix: IndexFile, lang: String, q: List<Clause>, exact: Boolean): Set<Int>? {
+    // its forms, or only the word itself for [exact]), intersected across clauses.
+    private fun candidateBlocks(ix: IndexFile, lang: String, q: List<Clause>, exact: Boolean): Set<Int> {
         var acc: Set<Int>? = null
         for (c in q) {
-            if (c.any { it.prefix }) return null
             for (w in c) {
-                val alts = if (exact) listOf(w.text) else listOf(w.text) + w.forms.keys
+                val alts = alternatives(w, exact)
                 val blocks = HashSet<Int>()
                 for (a in alts) ix.blocks(lang, a).forEach { blocks += it }
                 acc = acc?.intersect(blocks) ?: blocks
                 if (acc.isEmpty()) return acc
             }
         }
-        return acc
+        return acc.orEmpty()
     }
 }

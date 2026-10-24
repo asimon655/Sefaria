@@ -63,7 +63,7 @@ class WholeLibrarySearchBench {
         val search = SearchRepository(api, books, store.files, store.reader, db.installed(), OfflineSearch(store.reader))
         fun heap(): Long { repeat(3) { System.gc(); Thread.sleep(200) }; val r = Runtime.getRuntime(); return r.totalMemory() - r.freeMemory() }
         val before = heap()
-        val queries = System.getenv("BENCH_QUERIES")?.split(",") ?: listOf("שבת", "תפילין", "\"אמר רבי יוחנן\"", "קקקזזזק", "תפי*")
+        val queries = System.getenv("BENCH_QUERIES")?.split(",") ?: listOf("שבת", "תפילין", "\"אמר רבי יוחנן\"", "קקקזזזק")
         for (run in listOf("cold", "warm")) for (q in queries) {
             val t = System.nanoTime()
             val r = search.page(q, SearchFilter(lang = "he"))

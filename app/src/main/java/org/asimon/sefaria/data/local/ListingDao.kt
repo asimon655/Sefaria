@@ -35,6 +35,9 @@ data class ListedFile(
     val downloadBytes get() = bytes + indexBytes
 }
 
+/** An optional library file the listing offers ([FileKind.LINKS] or [FileKind.FILTERS]); [installed]: one of its kind is downloaded. */
+data class OptionalFile(val kind: String, val file: String, val bytes: Long, val installed: Boolean)
+
 /**
  * The server's listing of library files, replaced whole with the build it came from, and the
  * download queue kept in it (listed_file.queued).
@@ -47,7 +50,7 @@ abstract class ListingDao {
     @Query("SELECT * FROM listed_file WHERE kind = 'book' AND book = :book")
     abstract suspend fun listedBook(book: String): ListedFile?
 
-    /** The listed dictionary, links file or forms table. */
+    /** The listed dictionary, links file, forms table or filter file. */
     @Query("SELECT * FROM listed_file WHERE kind = :kind")
     abstract suspend fun listed(kind: String): ListedFile?
 
@@ -56,15 +59,26 @@ abstract class ListingDao {
     abstract suspend fun listedNames(): List<String>
 
     /**
-     * What a first book download adds beyond the book: the listed dictionary, links file and
-     * forms table that aren't downloaded (by sha256: an installed forms table is renamed).
+     * What a first book download adds beyond the book: the listed dictionary and forms table that
+     * aren't downloaded (by sha256: an installed forms table is renamed).
      */
     @Query(
-        """SELECT COALESCE(SUM(l.bytes), 0) FROM listed_file l WHERE l.kind IN ('dict', 'links', 'forms')
+        """SELECT COALESCE(SUM(l.bytes), 0) FROM listed_file l WHERE l.kind IN ('dict', 'forms')
            AND NOT EXISTS (SELECT 1 FROM installed_file i WHERE i.kind = l.kind
              AND substr(i.file, 1, instr(i.file, '.')) = substr(l.file, 1, instr(l.file, '.')))"""
     )
     abstract fun firstDownloadBytes(): Flow<Long>
+
+    /**
+     * The optional files the listing offers (the links file and the filter file), each with
+     * whether a file of its kind is downloaded (an older one counts: the library sync updates it).
+     */
+    @Query(
+        """SELECT l.kind AS kind, l.file AS file, l.bytes AS bytes,
+             EXISTS(SELECT 1 FROM installed_file i WHERE i.kind = l.kind) AS installed
+           FROM listed_file l WHERE l.kind IN ('links', 'filters') ORDER BY l.kind"""
+    )
+    abstract fun optionalFiles(): Flow<List<OptionalFile>>
 
     /** Downloaded books, in the file the listing has, that lack the index file it offers. */
     @Query(
@@ -82,7 +96,11 @@ abstract class ListingDao {
         fun row(f: LibraryFileDto, kind: String) = ListedFile(f.file, kind, f.book, f.he, f.bytes, f.index, f.indexBytes, kind == FileKind.BOOK && f.book in queued)
         insertListed(
             l.books.map { row(it, FileKind.BOOK) } + row(l.dict, FileKind.DICT) +
-                listOfNotNull(l.links?.let { row(it, FileKind.LINKS) }, l.forms?.let { row(it, FileKind.FORMS) })
+                listOfNotNull(
+                    l.links?.let { row(it, FileKind.LINKS) },
+                    l.forms?.let { row(it, FileKind.FORMS) },
+                    l.filters?.let { row(it, FileKind.FILTERS) },
+                )
         )
         stampBuild(build)
     }

@@ -57,6 +57,8 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,7 +70,9 @@ import org.asimon.sefaria.data.TextFlow
 import org.asimon.sefaria.data.ThemeMode
 import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.data.repo.DownloadRepository
+import org.asimon.sefaria.data.repo.SharedFiles
 import org.asimon.sefaria.feature.downloads.ConfirmDelete
+import org.asimon.sefaria.feature.downloads.OptionalFileRow
 import android.text.format.Formatter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Delete
@@ -88,17 +92,23 @@ class SettingsViewModel @Inject constructor(
     private val settings: Settings,
     private val fetcher: CachedFetcher,
     private val downloads: DownloadRepository,
+    private val shared: SharedFiles,
 ) : ViewModel() {
     val prefs = settings.prefs
     /** Disk used by downloaded books, and how many there are. */
     val downloadBytes = downloads.bytes
     val downloaded = downloads.installed
+    /** The optional files (connections, search filters) the server offers. */
+    val optional = shared.optional.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _build = MutableStateFlow<String?>(null)
     val build = _build.asStateFlow()
     private val _fonts = MutableStateFlow<FontChoices?>(null) // null until scanned
     val fonts = _fonts.asStateFlow()
 
-    init { refresh() }
+    init {
+        refresh()
+        shared.syncLibrary() // the listing names the optional files and their sizes
+    }
 
     private fun refresh() = viewModelScope.launch { _build.value = fetcher.refreshBuild() }
 
@@ -129,6 +139,8 @@ class SettingsViewModel @Inject constructor(
     fun setSnapToVerse(v: Boolean) = viewModelScope.launch { settings.setSnapToVerse(v) }
     fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { settings.setKeepScreenOn(v) }
     fun deleteAllDownloads() = viewModelScope.launch { downloads.deleteAll() }
+    fun downloadOptional(kind: String) = shared.downloadOptional(kind)
+    fun deleteOptional(kind: String) = viewModelScope.launch { shared.deleteOptional(kind) }
 }
 
 /** Which font picker is open. */
@@ -186,8 +198,11 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
                 val books by vm.downloaded.collectAsStateWithLifecycle()
                 var deleting by remember { mutableStateOf(false) }
                 val used = Formatter.formatShortFileSize(LocalContext.current, bytes)
+                val optional by vm.optional.collectAsStateWithLifecycle()
                 Text(stringResource(R.string.downloaded_books, books.size, used), style = MaterialTheme.typography.bodyLarge)
-                if (books.isNotEmpty()) OutlinedButton(onClick = { deleting = true }) {
+                if (optional.isNotEmpty()) Label(stringResource(R.string.optional_files))
+                for (o in optional) OptionalFileRow(o, onDownload = { vm.downloadOptional(o.kind) }, onDelete = { vm.deleteOptional(o.kind) })
+                if (books.isNotEmpty() || optional.any { it.installed }) OutlinedButton(onClick = { deleting = true }) {
                     Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Text(stringResource(R.string.delete_all_downloads), Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.error)
                 }

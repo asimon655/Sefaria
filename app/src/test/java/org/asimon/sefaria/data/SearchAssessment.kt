@@ -201,7 +201,7 @@ class SearchAssessment {
             "ואהבת לרעך כמוך", "\"ואהבת לרעך כמוך\"", "בָּרָא", "כל־ישראל", "ה' אחד",
             "שולחן ערוך", "בראשית א", "ברכות ב.",
             "Shabbat", "Shabat", "Rabbi Akiva", "love your neighbor", "\"in the beginning\"", "tefillin", "Moses",
-            "שב*", "תפי*", "Sha*", "\"אם אין אני לי מי לי\"", "קקקקק",
+            "\"אם אין אני לי מי לי\"", "קקקקק", // no word*: offline search is whole words only
         )
     }
 }

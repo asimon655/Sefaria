@@ -43,6 +43,7 @@ suspend fun Library.installFrom(src: File, m: LibraryDto, books: List<LibraryFil
     }
     m.links?.let { check(installer.installLinks(part(it.file), it.file) == null) }
     m.forms?.let { check(installer.installForms(part(it.file), it.sha256) == null) }
+    m.filters?.let { check(installer.installFilters(part(it.file), it.file) == null) }
 }
 
 /** The SQL statements of a fixture .sql file (comments dropped, split at semicolons). */

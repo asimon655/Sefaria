@@ -64,6 +64,8 @@ import org.asimon.sefaria.data.local.ListedFile
 import org.asimon.sefaria.data.repo.DownloadRepository
 import org.asimon.sefaria.data.repo.DownloadState
 import org.asimon.sefaria.data.repo.LibraryListing
+import org.asimon.sefaria.data.repo.OptionalStatus
+import org.asimon.sefaria.data.local.FileKind
 import org.asimon.sefaria.data.repo.SharedFiles
 import org.asimon.sefaria.ui.components.pick
 import org.asimon.sefaria.ui.components.text
@@ -73,7 +75,7 @@ import javax.inject.Inject
 class DownloadsViewModel @Inject constructor(
     private val repo: DownloadRepository,
     private val listing: LibraryListing,
-    shared: SharedFiles,
+    private val shared: SharedFiles,
     private val settings: Settings,
 ) : ViewModel() {
     val installed = repo.installed
@@ -93,8 +95,11 @@ class DownloadsViewModel @Inject constructor(
     val bytes = repo.bytes
     /** The server's books by title, as last listed; empty if never listed. */
     val available = listing.available
-    /** What a download adds beyond the book: the connections file and forms table, until downloaded. */
+    /** What a download adds beyond the book: the dictionary and forms table, until downloaded. */
     val extra = listing.extra
+    /** The optional files (connections, search filters) the server offers. */
+    val optional: StateFlow<List<OptionalStatus>> = shared.optional
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         shared.syncLibrary()
@@ -104,6 +109,7 @@ class DownloadsViewModel @Inject constructor(
     fun downloadAll(books: Collection<String>) = viewModelScope.launch { repo.downloadAll(books) }
     fun cancelAll(books: Collection<String>) = repo.cancelAll(books)
     fun cancel(book: String) = repo.cancel(book)
+    fun downloadOptional(kind: String) = shared.downloadOptional(kind)
     fun delete(book: String) = viewModelScope.launch { repo.delete(book) }
     fun setNotificationsAsked() = viewModelScope.launch { settings.setNotificationsAsked() }
     /** Pass the [available] entry read in composition, so the UI updates when the listing arrives. */
@@ -227,6 +233,7 @@ fun BookDownload(book: String, he: String, vm: DownloadsViewModel) {
                     Text(stringResource(R.string.download_size, size(p.downloadBytes)), Modifier.padding(start = 8.dp))
                 }
                 if (extra > 0) ExtraNote(extra)
+                OptionalNote(vm)
             }
         }
     }
@@ -245,6 +252,83 @@ private fun ExtraNote(extra: Long) = Text(
     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
 )
 
+/** An optional file's short title. */
+@Composable
+fun optionalTitle(kind: String): String =
+    stringResource(if (kind == FileKind.LINKS) R.string.optional_links_title else R.string.optional_filters_title)
+
+@Composable
+private fun optionalBody(kind: String): String =
+    stringResource(if (kind == FileKind.LINKS) R.string.optional_links_body else R.string.optional_filters_body)
+
+/** The optional files not downloaded, with where to get them (the settings); nothing if none. */
+@Composable
+private fun OptionalNote(vm: DownloadsViewModel) {
+    val optional by vm.optional.collectAsStateWithLifecycle()
+    val missing = optional.filter { !it.installed && !it.downloading }
+    if (missing.isEmpty()) return
+    Text(
+        stringResource(R.string.optional_missing, missing.map { optionalTitle(it.kind) }.joinToString(", ")),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** Buttons offering the optional files not downloaded (with title and size), and their progress. */
+@Composable
+private fun OptionalButtons(vm: DownloadsViewModel) {
+    val optional by vm.optional.collectAsStateWithLifecycle()
+    val offered = optional.filter { !it.installed }
+    if (offered.isEmpty()) return
+    Text(stringResource(R.string.optional_also), style = MaterialTheme.typography.labelLarge)
+    for (o in offered) {
+        when {
+            o.downloading -> Progress(DownloadState.Running(o.progress ?: 0, o.bytes), onCancel = null)
+            else -> Column {
+                OutlinedButton(onClick = { vm.downloadOptional(o.kind) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Download, contentDescription = null)
+                    Text(stringResource(R.string.optional_button, optionalTitle(o.kind), size(o.bytes)), Modifier.padding(start = 8.dp))
+                }
+                o.error?.let { Text(stringResource(R.string.download_failed, it.text()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+}
+
+/**
+ * An optional file in the settings: its title, what it does and its size, with a button to
+ * download it, its progress, or (downloaded) a button to delete it, asking first.
+ */
+@Composable
+fun OptionalFileRow(o: OptionalStatus, onDownload: () -> Unit, onDelete: () -> Unit) {
+    var deleting by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(optionalTitle(o.kind), style = MaterialTheme.typography.bodyLarge)
+            Text(optionalBody(o.kind) + " · " + size(o.bytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (o.downloading) {
+                Text(stringResource(R.string.downloading, size(o.progress ?: 0), size(o.bytes)), style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(progress = { if (o.bytes > 0) (o.progress ?: 0).toFloat() / o.bytes else 0f }, modifier = Modifier.fillMaxWidth())
+            }
+            o.error?.let { Text(stringResource(R.string.download_failed, it.text()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        }
+        when {
+            o.downloading -> {}
+            o.installed -> IconButton(onClick = { deleting = true }) {
+                Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove_download))
+            }
+            else -> IconButton(onClick = onDownload) {
+                Icon(Icons.Outlined.Download, contentDescription = stringResource(R.string.download))
+            }
+        }
+    }
+    if (deleting) ConfirmDelete(
+        title = stringResource(R.string.delete_optional_title, optionalTitle(o.kind)),
+        body = stringResource(R.string.delete_optional_body, size(o.bytes)),
+        onConfirm = { deleting = false; onDelete() },
+        onDismiss = { deleting = false },
+    )
+}
+
 /** Asks before deleting downloads: they take time (and data) to download again. */
 @Composable
 fun ConfirmDelete(title: String, body: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -261,13 +345,13 @@ fun ConfirmDelete(title: String, body: String, onConfirm: () -> Unit, onDismiss:
 }
 
 @Composable
-private fun Progress(d: DownloadState.Running, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+private fun Progress(d: DownloadState.Running, onCancel: (() -> Unit)?, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(R.string.downloading, size(d.done), size(d.total)), style = MaterialTheme.typography.bodySmall)
             LinearProgressIndicator(progress = { if (d.total > 0) d.done.toFloat() / d.total else 0f }, modifier = Modifier.fillMaxWidth())
         }
-        IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cancel)) }
+        if (onCancel != null) IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cancel)) }
     }
 }
 
@@ -327,11 +411,12 @@ fun BookRowDownload(book: String, he: String, vm: DownloadsViewModel) {
 /**
  * The download control for a group of books (a category, or the whole library). Tapping asks
  * first, with the number of books and their size, and offers to delete the group's downloaded
- * books too (asking again). While some download, it shows how many are done; tapping cancels
- * the rest.
+ * books too (asking again). For the [wholeLibrary], the dialog also offers the optional files
+ * (connections, search filters); for a category it only mentions those not downloaded. While
+ * some download, it shows how many are done; tapping cancels the rest.
  */
 @Composable
-fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asButton: Boolean = false) {
+fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asButton: Boolean = false, wholeLibrary: Boolean = false) {
     // counted in the view model: this redraws only when a number it shows changes
     val s = remember(vm, books) { vm.groupSummary(books) }
         .collectAsStateWithLifecycle(remember(vm, books) { vm.groupSummaryNow(books) }).value
@@ -365,6 +450,7 @@ fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asB
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.download_confirm, s.missing, size(s.missingBytes)))
                     if (extra > 0) ExtraNote(extra)
+                    if (wholeLibrary) OptionalButtons(vm) else OptionalNote(vm)
                     if (s.have > 0) TextButton(onClick = { asking = false; deleting = true }) {
                         Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Text(stringResource(R.string.delete_downloaded_n, s.have), Modifier.padding(start = 6.dp), color = MaterialTheme.colorScheme.error)

@@ -1,6 +1,7 @@
 package org.asimon.sefaria.data.repo
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -11,6 +12,7 @@ import kotlinx.coroutines.sync.withLock
 import org.asimon.sefaria.data.local.InstalledBook
 import org.asimon.sefaria.data.local.ListedFile
 import org.asimon.sefaria.data.local.ListingDao
+import org.asimon.sefaria.data.local.OptionalFile
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.AppError
@@ -39,8 +41,11 @@ class LibraryListing(
         dao.listedBooks().map { l -> l.associateBy { it.book } }
             .stateIn(scope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), emptyMap())
 
-    /** What a first book download adds beyond the book: the links file, forms table and dictionary, until downloaded. */
+    /** What a first book download adds beyond the book: the forms table and dictionary, until downloaded. */
     val extra: StateFlow<Long> = dao.firstDownloadBytes().stateIn(scope, SharingStarted.Eagerly, 0L)
+
+    /** The optional files listed (links, filters), with whether each is downloaded. */
+    val optional: Flow<List<OptionalFile>> = dao.optionalFiles()
 
     /**
      * Brings the stored listing up to the server's build (asking with the stored build's ETag);
@@ -74,7 +79,7 @@ class LibraryListing(
     /** Whether the stored listing offers [book]. */
     suspend fun isListed(book: String): Boolean = dao.listedBook(book) != null
 
-    /** The listed dictionary, links file or forms table (a FileKind). */
+    /** The listed dictionary, links file, forms table or filter file (a FileKind). */
     suspend fun shared(kind: String): ListedFile? = dao.listed(kind)
 
     /** Every file name the listing offers, index files included. */
