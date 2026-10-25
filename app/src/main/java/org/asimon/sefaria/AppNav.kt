@@ -1,5 +1,15 @@
 package org.asimon.sefaria
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -68,6 +78,20 @@ internal fun AppNav(labels: Boolean) {
     val showBar = dest != null && !dest.hasRoute(ReaderRoute::class) && !dest.hasRoute(SettingsRoute::class)
     fun selected(tab: Tab) = dest?.hierarchy?.any { it.hasRoute(tab.type) } == true ||
         (tab.type == LibraryRoute::class && dest?.hasRoute(BookRoute::class) == true)
+    // which way a tab switch slides (+1: to the next tab, -1: to the previous); 0 for every other navigation
+    var slide by remember { mutableIntStateOf(0) }
+    // every other forward navigation fades, as before
+    fun push(route: Any) {
+        slide = 0
+        nav.navigate(route)
+    }
+    val current = tabs.indexOfFirst(::selected)
+    fun goTab(i: Int) {
+        if (i !in tabs.indices || i == current) return
+        if (current >= 0) slide = if (i > current) 1 else -1
+        nav.switchTab(tabs[i].route)
+    }
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     // by width alone: a phone in landscape also gets the rail, which keeps its short height for content
     val type = when {
@@ -78,43 +102,56 @@ internal fun AppNav(labels: Boolean) {
     // the scaffold's own bar has a fixed height, so the layout gets ours
     Surface(color = MaterialTheme.colorScheme.background) {
     NavigationSuiteScaffoldLayout(
-        navigationSuite = { TabBar(type, labels, ::selected) { nav.switchTab(it.route) } },
+        navigationSuite = { TabBar(type, labels, ::selected) { goTab(tabs.indexOf(it)) } },
         navigationSuiteType = type,
     ) {
-        val open = { route: Any -> nav.navigate(route) }
+        val open = { route: Any -> push(route) }
+        // a tab switch slides the way the tabs lie (mirrored right to left); the rest fade, as before
+        val side = if (rtl) -1 else 1
         NavHost(
             nav, startDestination = HomeRoute,
             // the bar pads itself for the system bars, so the pages don't
-            modifier = Modifier.consumeWindowInsets(
-                when (type) {
-                    NavigationSuiteType.NavigationBar -> NavigationBarDefaults.windowInsets.only(WindowInsetsSides.Bottom)
-                    NavigationSuiteType.NavigationRail -> NavigationRailDefaults.windowInsets.only(WindowInsetsSides.Start)
-                    else -> WindowInsets(0)
-                }
-            ),
+            modifier = Modifier
+                .consumeWindowInsets(
+                    when (type) {
+                        NavigationSuiteType.NavigationBar -> NavigationBarDefaults.windowInsets.only(WindowInsetsSides.Bottom)
+                        NavigationSuiteType.NavigationRail -> NavigationRailDefaults.windowInsets.only(WindowInsetsSides.Start)
+                        else -> WindowInsets(0)
+                    }
+                )
+                // swipe between the tabs wherever their bar shows
+                .tabSwipe(enabled = showBar && current >= 0) { goTab(current + it) },
+            enterTransition = {
+                if (slide != 0) slideInHorizontally(tween(TAB_SLIDE_MS)) { w -> slide * side * w } else fadeIn(tween(FADE_MS))
+            },
+            exitTransition = {
+                if (slide != 0) slideOutHorizontally(tween(TAB_SLIDE_MS)) { w -> -slide * side * w } else fadeOut(tween(FADE_MS))
+            },
+            popEnterTransition = { fadeIn(tween(FADE_MS)) },
+            popExitTransition = { fadeOut(tween(FADE_MS)) },
         ) {
             composable<HomeRoute> {
-                HomeScreen(onOpen = open, onSettings = { nav.navigate(SettingsRoute) })
+                HomeScreen(onOpen = open, onSettings = { push(SettingsRoute) })
             }
             composable<LibraryRoute> {
                 LibraryScreen(
-                    onCategory = { nav.navigate(it) },
-                    onBook = { nav.navigate(BookRoute(it)) },
+                    onCategory = { push(it) },
+                    onBook = { push(BookRoute(it)) },
                     onOpen = open,
                     onBack = { nav.popBackStack() },
                 )
             }
             composable<BookRoute> {
-                BookScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
+                BookScreen(onOpen = { push(it) }, onBack = { nav.popBackStack() })
             }
             composable<ReaderRoute>(typeMap = ReaderRoute.typeMap) {
-                ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(it) }, onTrail = nav::backAlongTrail)
+                ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { push(it) }, onTrail = { slide = 0; nav.backAlongTrail(it) })
             }
             composable<SearchRoute> {
-                SearchScreen(onOpen = { nav.navigate(it) }, onBack = { nav.popBackStack() })
+                SearchScreen(onOpen = { push(it) }, onBack = { nav.popBackStack() })
             }
             composable<SavedRoute> {
-                SavedScreen(onOpen = { nav.navigate(it) })
+                SavedScreen(onOpen = { push(it) })
             }
             composable<SettingsRoute> {
                 SettingsScreen(onBack = { nav.popBackStack() })
@@ -123,6 +160,10 @@ internal fun AppNav(labels: Boolean) {
     }
     }
 }
+
+/** How long a tab switch slides; other screens fade in [FADE_MS], Navigation's default. */
+private const val TAB_SLIDE_MS = 280
+private const val FADE_MS = 700
 
 /** The bottom bar's height without labels (with them, the standard 80dp). */
 private val ShortBarHeight = 56.dp
