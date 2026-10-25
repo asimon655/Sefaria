@@ -110,6 +110,14 @@ class ParagraphLayout(val layout: TextLayoutResult, val ranges: List<IntRange>, 
         return segments.getOrNull(i)
     }
 
+    /** The segments with text on the line at [y]: several in paragraph flow, where verses run on. */
+    fun segmentsOnLine(y: Float): List<SegmentItem> {
+        val line = layout.getLineForVerticalPosition(y)
+        val start = layout.getLineStart(line)
+        val end = layout.getLineEnd(line)
+        return segments.filterIndexed { i, _ -> ranges[i].first < end && ranges[i].last >= start }
+    }
+
     /** The y of the line where a segment starts, for scrolling to it. */
     fun topOf(key: String): Int? {
         val i = segments.indexOfFirst { it.key == key }.takeIf { it >= 0 } ?: return null

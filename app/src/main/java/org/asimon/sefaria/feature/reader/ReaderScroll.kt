@@ -16,8 +16,22 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** A snap point: [item] in viewport pixels, the list row it is in and its top inside the row, and its segment. */
-data class VerseSpot(val item: SnapItem, val row: Int, val inRow: Int, val key: String)
+/**
+ * A snap point: [item] in viewport pixels, the list row it is in and its top inside the row, and
+ * its segment [key]: the first of [keys], every verse that starts on its line.
+ */
+data class VerseSpot(val item: SnapItem, val row: Int, val inRow: Int, val key: String, val keys: List<String> = listOf(key))
+
+/** Paragraph flow: verses by the line they start on ([starts]: key and top, in reading order), one line per entry, top to bottom. */
+fun lineStarts(starts: List<Pair<String, Int>>): List<Pair<Int, List<String>>> =
+    starts.groupBy({ it.second }, { it.first }).map { (top, keys) -> top to keys }
+
+/**
+ * The verse that following the reading selects on a line holding the verses [onLine]: the
+ * selected verse [keep] if it is one of them (tapping the second verse of a line must not give
+ * way to the first), else the line's first verse.
+ */
+fun followPick(onLine: List<String>, keep: String?): String? = if (keep != null && keep in onLine) keep else onLine.firstOrNull()
 
 /**
  * Where the reader's text list is, in segments: scrolling to a segment (inside its paragraph in
@@ -57,12 +71,11 @@ class ReaderScroll(
                 is LineRow -> out += VerseSpot(SnapItem(out.size, info.offset, info.offset + info.size), info.index, 0, row.item.key)
                 is ParagraphRow -> {
                     val laid = paragraphLayouts[row.key] ?: continue
-                    val starts = row.segments.mapNotNull { seg -> laid.topOf(seg.key)?.let { seg.key to it + paragraphPad } }
-                        .distinctBy { it.second }
-                    for ((j, start) in starts.withIndex()) {
-                        val (key, top) = start
-                        val bottom = starts.getOrNull(j + 1)?.second ?: (info.size - paragraphPad)
-                        out += VerseSpot(SnapItem(out.size, info.offset + top, info.offset + bottom), info.index, top, key)
+                    val lines = lineStarts(row.segments.mapNotNull { seg -> laid.topOf(seg.key)?.let { seg.key to it + paragraphPad } })
+                    for ((j, line) in lines.withIndex()) {
+                        val (top, keys) = line
+                        val bottom = lines.getOrNull(j + 1)?.first ?: (info.size - paragraphPad)
+                        out += VerseSpot(SnapItem(out.size, info.offset + top, info.offset + bottom), info.index, top, keys.first(), keys)
                     }
                 }
                 else -> {}
@@ -71,17 +84,26 @@ class ReaderScroll(
         return out
     }
 
-    /** The segment at the top of the text: with snapping, the one at the snap line. Null if none is laid out. */
-    fun segmentAtTop(snap: Boolean): String? {
+    /**
+     * The segment at the top of the text: with snapping, the one at the snap line. In paragraph
+     * flow a line can hold several verses: [keep] (the selected one) stays if it is on that line.
+     * Null if none is laid out.
+     */
+    fun segmentAtTop(snap: Boolean, keep: String? = null): String? {
         if (snap) {
             val at = list.layoutInfo.viewportStartOffset + snapLine
-            return verseSpots().firstOrNull { it.item.bottom > at + 1 }?.key
+            return verseSpots().firstOrNull { it.item.bottom > at + 1 }?.let { followPick(it.keys, keep) }
         }
         for (info in list.layoutInfo.visibleItemsInfo) {
             val key = when (val row = rows.rows.getOrNull(info.index)) {
                 is LineRow -> row.item.key.takeIf { info.offset >= -info.size / 3 }
-                is ParagraphRow -> paragraphLayouts[row.key]?.segmentAt(Offset(1f, maxOf(0, -info.offset) + 1f))?.key
-                    ?: row.segments.first().key
+                is ParagraphRow -> {
+                    val laid = paragraphLayouts[row.key]
+                    val y = maxOf(0, -info.offset) + 1f
+                    keep?.takeIf { k -> laid?.segmentsOnLine(y)?.any { it.key == k } == true }
+                        ?: laid?.segmentAt(Offset(1f, y))?.key
+                        ?: row.segments.first().key
+                }
                 else -> null
             } ?: continue
             return key
@@ -148,16 +170,17 @@ fun PageAsScrolled(
 
 /**
  * While connections are open ([active]) they follow the reading: when a scroll ends, the segment
- * at the top of the text becomes the selected one ([onSelect]); with [snap], the scroll then
- * settles on a verse (Snap.kt).
+ * at the top of the text becomes the selected one ([onSelect]), unless the [selected] one shares
+ * its line; with [snap], the scroll then settles on a verse (Snap.kt).
  */
 @Composable
-fun FollowReading(scroll: ReaderScroll, active: Boolean, snap: Boolean, onSelect: (String) -> Unit) {
+fun FollowReading(scroll: ReaderScroll, selected: String?, active: Boolean, snap: Boolean, onSelect: (String) -> Unit) {
     val list = scroll.list
+    val current = rememberUpdatedState(selected)
     LaunchedEffect(list, active) {
         if (!active) return@LaunchedEffect
         snapshotFlow { list.isScrollInProgress }.drop(1).filter { !it }.collect {
-            scroll.segmentAtTop(snap)?.let(onSelect)
+            scroll.segmentAtTop(snap, keep = current.value)?.let(onSelect)
         }
     }
     // Runs after the follow effect above has seen the gesture end, and its own scroll ends on a verse top.

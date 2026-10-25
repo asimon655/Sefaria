@@ -158,7 +158,7 @@ fun ReaderScreen(
     }
 
     PageAsScrolled(scroll, s.initialIndex, s.items, onInitialDone = vm::initialScrollDone, onVisible = vm::onVisible)
-    FollowReading(scroll, active = selectedKey != null, snap = prefs.snapToVerse, onSelect = { selectedKey = it })
+    FollowReading(scroll, selected = selectedKey, active = selectedKey != null, snap = prefs.snapToVerse, onSelect = { selectedKey = it })
     BackHandler(enabled = selecting) { sel.clear() }
     BackHandler(enabled = !selecting && selectedKey != null) { selectedKey = null }
 
