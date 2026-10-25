@@ -119,6 +119,26 @@ class DownloadQueueTest {
     }
 
     @Test
+    fun aDownloadStoppedMidwayShowsAsPausedAndResumes() = runBlocking {
+        val p = parts()
+        p.listing.refresh()
+        // what a stopped download leaves: the first half of the book file in its .part
+        val g = listing().books.first { it.book == "Genesis" }
+        val whole = File(src, g.file).readBytes()
+        val part = p.store.files.partFor(g.file)
+        part.parentFile!!.mkdirs()
+        part.writeBytes(whole.copyOf(whole.size / 2))
+        p.downloads.findPaused()
+        assertEquals(mapOf("Genesis" to (whole.size / 2).toLong()), p.downloads.paused.value.toMap())
+        // resuming takes it off the paused list and completes the file from where it stopped
+        p.downloads.download("Genesis")
+        assertFalse("Genesis" in p.downloads.paused.value)
+        withTimeout(10_000) { p.downloads.awaitIdle() }
+        withTimeout(10_000) { p.downloads.installed.first { "Genesis" in it } }
+        assertFalse(part.exists())
+    }
+
+    @Test
     fun optionalFilesDownloadWhenAsked() = runBlocking {
         val p = parts()
         p.listing.refresh()

@@ -31,7 +31,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material.icons.outlined.Download
@@ -82,6 +85,8 @@ class DownloadsViewModel @Inject constructor(
     val notificationsAsked = settings.prefs.map { it.notificationsAsked }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val downloads = repo.downloads
+    /** Books stopped midway, with the bytes already downloaded. */
+    val paused = repo.paused
     /**
      * Whether anything is queued or downloading, checked off the main thread and at most every
      * [THROTTLE_MS] (the latest state wins): it changes twice per batch, not on every update.
@@ -103,6 +108,7 @@ class DownloadsViewModel @Inject constructor(
 
     init {
         shared.syncLibrary()
+        viewModelScope.launch { repo.findPaused() }
     }
 
     fun download(book: String) = viewModelScope.launch { if (listing.isListed(book)) repo.download(book) }
@@ -110,6 +116,7 @@ class DownloadsViewModel @Inject constructor(
     fun cancelAll(books: Collection<String>) = repo.cancelAll(books)
     fun cancel(book: String) = repo.cancel(book)
     fun downloadOptional(kind: String) = shared.downloadOptional(kind)
+    fun pauseOptional(kind: String) = shared.pauseOptional(kind)
     fun delete(book: String) = viewModelScope.launch { repo.delete(book) }
     fun setNotificationsAsked() = viewModelScope.launch { settings.setNotificationsAsked() }
     /** Pass the [available] entry read in composition, so the UI updates when the listing arrives. */
@@ -121,15 +128,14 @@ class DownloadsViewModel @Inject constructor(
      * summary walks the group (the whole library for the top bar).
      */
     fun groupSummary(books: List<String>): Flow<GroupSummary?> =
-        combine(installed, available, downloads, ::Triple)
+        combine(installed, available, downloads, paused) { i, a, d, p -> summarize(books, i, a, d, p) }
             .throttleLatest(THROTTLE_MS)
-            .map { (i, a, d) -> summarize(books, i, a, d) }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
 
     /** [books]' summary now, for the first frame (the flow's first value comes a moment later). */
     fun groupSummaryNow(books: List<String>): GroupSummary? =
-        summarize(books, installed.value, available.value, downloads.value)
+        summarize(books, installed.value, available.value, downloads.value, paused.value)
 
     /** Deletes the downloaded books of [books]. */
     fun deleteDownloaded(books: List<String>) = viewModelScope.launch {
@@ -145,8 +151,8 @@ class DownloadsViewModel @Inject constructor(
 /**
  * A group of books (a category, or the whole library) as its download control shows it: books
  * the server offers or that are downloaded, how many are downloaded and current ([done]),
- * queued or downloading ([active]), still to download ([missing], [missingBytes]), and
- * downloaded in any version ([have], [haveBytes]).
+ * queued or downloading ([active]), still to download ([missing], [missingBytes]), downloaded
+ * in any version ([have], [haveBytes]), and stopped midway ([paused]).
  */
 data class GroupSummary(
     val offered: Int,
@@ -156,7 +162,11 @@ data class GroupSummary(
     val missingBytes: Long,
     val have: Int,
     val haveBytes: Long,
-)
+    val paused: Int = 0,
+) {
+    /** Some of the group is downloaded or under way, the rest not, and nothing is downloading. */
+    val partial get() = active == 0 && missing > 0 && (done > 0 || paused > 0)
+}
 
 /** Null until the server's listing is known (installed books alone would make a group look complete), or if the group offers nothing. */
 private fun summarize(
@@ -164,9 +174,10 @@ private fun summarize(
     installed: Map<String, InstalledBook>,
     available: Map<String, ListedFile>,
     downloads: Map<String, DownloadState>,
+    paused: Map<String, Long>,
 ): GroupSummary? {
     if (available.isEmpty()) return null
-    var offered = 0; var active = 0; var missing = 0; var have = 0
+    var offered = 0; var active = 0; var missing = 0; var have = 0; var stopped = 0
     var missingBytes = 0L; var haveBytes = 0L
     for (b in books) {
         val listed = available[b]
@@ -176,9 +187,10 @@ private fun summarize(
         if (local != null) { have++; haveBytes += local.bytes }
         if (listed != null && local?.file != listed.file) { missing++; missingBytes += listed.downloadBytes }
         if (b in downloads) active++
+        if (b in paused) stopped++
     }
     if (offered == 0) return null
-    return GroupSummary(offered, offered - missing, active, missing, missingBytes, have, haveBytes)
+    return GroupSummary(offered, offered - missing, active, missing, missingBytes, have, haveBytes, stopped)
 }
 
 /** The first value at once, then the latest at most every [ms]. */
@@ -189,6 +201,37 @@ private fun <T> Flow<T>.throttleLatest(ms: Long): Flow<T> = conflate().transform
 
 @Composable
 private fun size(bytes: Long): String = Formatter.formatShortFileSize(LocalContext.current, bytes)
+
+/**
+ * A download control that shows what tapping it does: a progress ring with [icon] inside
+ * (pause while downloading, resume when stopped midway). [progress] null spins (queued, verifying).
+ */
+@Composable
+fun DownloadRing(progress: Float?, icon: ImageVector, description: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Box(contentAlignment = Alignment.Center) {
+            val ring = Modifier.size(28.dp)
+            if (progress == null) CircularProgressIndicator(ring, strokeWidth = 2.dp)
+            else CircularProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) }, modifier = ring, strokeWidth = 2.dp,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+            Icon(icon, contentDescription = description, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+/** Pausing a download in progress: a ring with a pause icon. */
+@Composable
+private fun PauseRing(progress: Float?, onPause: () -> Unit) =
+    DownloadRing(progress, Icons.Filled.Pause, stringResource(R.string.pause_download), onPause)
+
+/** Resuming a download stopped midway: a still ring at how far it got, with a play icon. */
+@Composable
+private fun ResumeRing(progress: Float, onResume: () -> Unit) =
+    DownloadRing(progress, Icons.Filled.PlayArrow, stringResource(R.string.resume_download), onResume)
+
+private fun fraction(done: Long, total: Long) = if (total > 0) done.toFloat() / total else 0f
 
 /**
  * One entry of a map flow, as state that changes only when that entry does: a book's control
@@ -208,6 +251,7 @@ fun BookDownload(book: String, he: String, vm: DownloadsViewModel) {
     val pack = vm.installed.collectEntry(book).value
     val download = vm.downloads.collectEntry(book).value
     val listed = vm.available.collectEntry(book).value
+    val paused = vm.paused.collectEntry(book).value
     val extra by vm.extra.collectAsStateWithLifecycle()
     var deleting by remember { mutableStateOf(false) }
     val pad = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
@@ -229,8 +273,13 @@ fun BookDownload(book: String, he: String, vm: DownloadsViewModel) {
         } else listed?.let { p ->
             Column(pad) {
                 OutlinedButton(onClick = { vm.download(book) }) {
-                    Icon(Icons.Outlined.Download, contentDescription = null)
-                    Text(stringResource(R.string.download_size, size(p.downloadBytes)), Modifier.padding(start = 8.dp))
+                    if (paused != null) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Text(stringResource(R.string.resume_download_size, size(paused), size(p.bytes)), Modifier.padding(start = 8.dp))
+                    } else {
+                        Icon(Icons.Outlined.Download, contentDescription = null)
+                        Text(stringResource(R.string.download_size, size(p.downloadBytes)), Modifier.padding(start = 8.dp))
+                    }
                 }
                 if (extra > 0) ExtraNote(extra)
                 OptionalNote(vm)
@@ -299,7 +348,7 @@ private fun OptionalButtons(vm: DownloadsViewModel) {
  * download it, its progress, or (downloaded) a button to delete it, asking first.
  */
 @Composable
-fun OptionalFileRow(o: OptionalStatus, onDownload: () -> Unit, onDelete: () -> Unit) {
+fun OptionalFileRow(o: OptionalStatus, onDownload: () -> Unit, onPause: () -> Unit, onDelete: () -> Unit) {
     var deleting by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -312,10 +361,11 @@ fun OptionalFileRow(o: OptionalStatus, onDownload: () -> Unit, onDelete: () -> U
             o.error?.let { Text(stringResource(R.string.download_failed, it.text()), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         }
         when {
-            o.downloading -> {}
+            o.downloading -> PauseRing(fraction(o.progress ?: 0, o.bytes), onPause)
             o.installed -> IconButton(onClick = { deleting = true }) {
                 Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove_download))
             }
+            o.paused -> ResumeRing(fraction(o.partial, o.bytes), onDownload)
             else -> IconButton(onClick = onDownload) {
                 Icon(Icons.Outlined.Download, contentDescription = stringResource(R.string.download))
             }
@@ -351,7 +401,7 @@ private fun Progress(d: DownloadState.Running, onCancel: (() -> Unit)?, modifier
             Text(stringResource(R.string.downloading, size(d.done), size(d.total)), style = MaterialTheme.typography.bodySmall)
             LinearProgressIndicator(progress = { if (d.total > 0) d.done.toFloat() / d.total else 0f }, modifier = Modifier.fillMaxWidth())
         }
-        if (onCancel != null) IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cancel)) }
+        if (onCancel != null) IconButton(onClick = onCancel) { Icon(Icons.Filled.Pause, contentDescription = stringResource(R.string.pause_download)) }
     }
 }
 
@@ -363,27 +413,25 @@ private fun Verifying(onCancel: () -> Unit, modifier: Modifier = Modifier) {
             Text(stringResource(R.string.verifying), style = MaterialTheme.typography.bodySmall)
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
-        IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.cancel)) }
+        IconButton(onClick = onCancel) { Icon(Icons.Filled.Pause, contentDescription = stringResource(R.string.pause_download)) }
     }
 }
 
 /**
- * A book's download control in a list (the library): download, queued or in progress (tap to
- * cancel), downloaded, update, or retry after a failure. Nothing if the server can't send it.
+ * A book's download control in a list (the library), showing what a tap does: download; pause
+ * (queued or in progress); resume (stopped midway); update; delete (downloaded); or retry after a
+ * failure. Nothing if the server can't send it.
  */
 @Composable
 fun BookRowDownload(book: String, he: String, vm: DownloadsViewModel) {
     val have = vm.installed.collectEntry(book).value
     val download = vm.downloads.collectEntry(book).value
     val listed = vm.available.collectEntry(book).value
+    val paused = vm.paused.collectEntry(book).value
     var deleting by remember { mutableStateOf(false) }
     when (val d = download) {
-        DownloadState.Queued, DownloadState.Verifying -> IconButton(onClick = { vm.cancel(book) }) {
-            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-        }
-        is DownloadState.Running -> IconButton(onClick = { vm.cancel(book) }) {
-            CircularProgressIndicator(progress = { if (d.total > 0) d.done.toFloat() / d.total else 0f }, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-        }
+        DownloadState.Queued, DownloadState.Verifying -> PauseRing(null) { vm.cancel(book) }
+        is DownloadState.Running -> PauseRing(fraction(d.done, d.total)) { vm.cancel(book) }
         is DownloadState.Failed -> IconButton(onClick = { vm.download(book) }) {
             Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.retry), tint = MaterialTheme.colorScheme.error)
         }
@@ -393,8 +441,9 @@ fun BookRowDownload(book: String, he: String, vm: DownloadsViewModel) {
             }
             // downloaded: tapping offers to delete it
             have != null -> IconButton(onClick = { deleting = true }) {
-                Icon(Icons.Outlined.DownloadDone, contentDescription = stringResource(R.string.remove_download), tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove_download))
             }
+            listed != null && paused != null -> ResumeRing(fraction(paused, listed.bytes)) { vm.download(book) }
             listed != null -> IconButton(onClick = { vm.download(book) }) {
                 Icon(Icons.Outlined.Download, contentDescription = stringResource(R.string.download))
             }
@@ -428,12 +477,12 @@ fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asB
     if (s == null) return
     when {
         // the actions take the whole group: the repository skips what doesn't apply
-        s.active > 0 -> IconButton(onClick = { vm.cancelAll(books) }) {
-            CircularProgressIndicator(progress = { s.done.toFloat() / s.offered }, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-        }
+        s.active > 0 -> PauseRing(s.done.toFloat() / s.offered) { vm.cancelAll(books) }
         s.missing == 0 -> IconButton(onClick = { deleting = true }) {
-            Icon(Icons.Outlined.DownloadDone, contentDescription = stringResource(R.string.remove_download), tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove_download))
         }
+        // part of the group downloaded: resuming asks first, like downloading it
+        !asButton && s.partial -> ResumeRing(s.done.toFloat() / s.offered) { asking = true }
         asButton -> TextButton(onClick = { asking = true }) {
             Icon(Icons.Outlined.Download, contentDescription = null)
             Text(stringResource(R.string.download_all), Modifier.padding(start = 6.dp))

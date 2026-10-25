@@ -1,7 +1,10 @@
 package org.asimon.sefaria.data.repo
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.withContext
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.mutate
 import kotlinx.collections.immutable.persistentMapOf
@@ -83,6 +86,14 @@ class DownloadRepository(
     // books queued or downloading, or stopped by the network: saved, so a restart resumes them
     private val pending = MutableStateFlow(persistentSetOf<String>())
 
+    private val _paused = MutableStateFlow(persistentMapOf<String, Long>())
+    /**
+     * Books whose download was stopped midway, with the bytes of their book file already on disk
+     * (its .part file): the next download resumes from there. Filled by [findPaused] and by each stop.
+     */
+    val paused: StateFlow<PersistentMap<String, Long>> = _paused.asStateFlow()
+    @Volatile private var scanned = false
+
     init {
         scope.launch {
             // the latest queue at most once a second (waiting for a quiet moment never came
@@ -113,8 +124,45 @@ class DownloadRepository(
         downloads.first { m -> m.values.none { it.active } }
     }
 
+    /**
+     * Finds the downloads a last run left midway, from the .part files, once: not at start, since
+     * the library folder can hold thousands of files.
+     */
+    suspend fun findPaused() {
+        if (scanned) return
+        scanned = true
+        val parts = withContext(Dispatchers.IO) {
+            library.files.dir.listFiles { f -> f.name.endsWith(".sfb.part") }.orEmpty()
+                .associate { it.name.removeSuffix(".part") to it.length() }.filterValues { it > 0 }
+        }
+        if (parts.isEmpty()) return
+        val byFile = listing.books().values.associateBy { it.file }
+        _paused.update { m ->
+            m.mutate { b ->
+                for ((file, n) in parts) {
+                    val title = byFile[file]?.book ?: continue
+                    if (jobs[title]?.isActive != true && title !in _downloads.value) b[title] = n
+                }
+            }
+        }
+    }
+
+    // After [stopped] end, records which of [books] have part of their book file on disk.
+    private fun notePaused(books: Collection<String>, stopped: List<Job>) {
+        if (books.isEmpty()) return
+        scope.launch {
+            stopped.joinAll()
+            val listed = if (books.size == 1) listOfNotNull(listing.book(books.first())).associateBy { it.book } else listing.books()
+            val sizes = withContext(Dispatchers.IO) {
+                books.associateWith { t -> listed[t]?.let { library.files.partFor(it.file).length() } ?: 0L }
+            }
+            _paused.update { m -> m.mutate { b -> for ((t, n) in sizes) if (n > 0 && t !in _downloads.value) b[t] = n else b.remove(t) } }
+        }
+    }
+
     fun download(book: String) {
         if (jobs[book]?.isActive == true) return
+        _paused.update { it.remove(book) }
         _downloads.update { it.put(book, DownloadState.Queued) }
         pending.update { it.add(book) }
         start(book)
@@ -148,18 +196,20 @@ class DownloadRepository(
         }
         // One state update for the lot: one per book copied the growing map thousands of times.
         _downloads.update { m -> m.mutate { b -> queue.forEach { b[it] = DownloadState.Queued } } }
+        _paused.update { m -> m.mutate { b -> queue.forEach(b::remove) } }
         val queued = queue.toHashSet() // a list here made this quadratic over the whole library
         pending.update { it.addAll(queue).removeAll(books.filter { b -> b !in queued && jobs[b]?.isActive != true }.toSet()) }
         queue.forEach(::start)
         if (queue.isNotEmpty()) onQueued()
     }
 
-    /** Stops the downloads of [books], queued or running. */
+    /** Stops (pauses) the downloads of [books], queued or running; their partial files are kept. */
     fun cancelAll(books: Collection<String>) {
         val set = books.toSet()
-        set.forEach { jobs.remove(it)?.cancel() }
+        val stopped = set.mapNotNull { t -> jobs.remove(t)?.also { it.cancel() }?.let { t to it } }
         _downloads.update { m -> m.mutate { b -> set.forEach(b::remove) } }
         pending.update { it.removeAll(set) }
+        notePaused(stopped.map { it.first }, stopped.map { it.second })
     }
 
     /** A book's files, downloaded and not yet verified, or why not. */
@@ -209,11 +259,12 @@ class DownloadRepository(
         return null
     }
 
-    /** Stops a download; the partial file is kept so the next download resumes. */
+    /** Stops (pauses) a download; the partial file is kept so the next download resumes. */
     fun cancel(book: String) {
-        jobs.remove(book)?.cancel()
+        val job = jobs.remove(book)?.also { it.cancel() }
         _downloads.update { it.remove(book) }
         pending.update { it.remove(book) }
+        if (job != null) notePaused(listOf(book), listOf(job))
     }
 
     suspend fun delete(book: String) {

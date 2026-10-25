@@ -1,7 +1,10 @@
 package org.asimon.sefaria.data.repo
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.flowOn
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -19,10 +22,19 @@ import org.asimon.sefaria.data.remote.Api
 /**
  * An optional library file ([FileKind.LINKS] or [FileKind.FILTERS]) as the settings and the
  * download dialogs show it: its size, whether it is downloaded, the bytes done while it
- * downloads ([progress]), and why its last download failed.
+ * downloads ([progress]), the bytes on disk of a download stopped midway ([partial]), and why
+ * its last download failed.
  */
-data class OptionalStatus(val kind: String, val bytes: Long, val installed: Boolean, val progress: Long? = null, val error: AppError? = null) {
+data class OptionalStatus(
+    val kind: String,
+    val bytes: Long,
+    val installed: Boolean,
+    val progress: Long? = null,
+    val error: AppError? = null,
+    val partial: Long = 0,
+) {
     val downloading get() = progress != null
+    val paused get() = !installed && !downloading && partial > 0
 }
 
 /**
@@ -42,12 +54,16 @@ class SharedFiles(
     private val locks = listOf(FileKind.DICT, FileKind.FORMS, FileKind.LINKS, FileKind.FILTERS).associateWith { Mutex() }
     private val running = MutableStateFlow<Map<String, Long>>(emptyMap()) // kind -> bytes done
     private val failed = MutableStateFlow<Map<String, AppError>>(emptyMap())
+    private val jobs = ConcurrentHashMap<String, Job>() // optional downloads asked for, by kind
     @Volatile private var syncing: Job? = null
 
-    /** The optional files the listing offers, links first. */
+    /** The optional files the listing offers, links first; a stopped download's .part size is read from disk. */
     val optional: Flow<List<OptionalStatus>> = combine(listing.optional, running, failed) { files, r, e ->
-        files.map { OptionalStatus(it.kind, it.bytes, it.installed, r[it.kind], e[it.kind]) }
-    }
+        files.map {
+            val partial = if (it.installed || it.kind in r) 0L else library.files.partFor(it.file).length()
+            OptionalStatus(it.kind, it.bytes, it.installed, r[it.kind], e[it.kind], partial)
+        }
+    }.flowOn(Dispatchers.IO)
 
     /** Downloads and installs [dict] unless it is there; null when it is, else why not. */
     suspend fun ensureDict(dict: ListedFile): AppError? = locks.getValue(FileKind.DICT).withLock {
@@ -63,11 +79,16 @@ class SharedFiles(
         if (get(f) == null) library.installer.installForms(library.files.partFor(f.file), f.sha256)
     }
 
-    /** Downloads the optional file of [kind] in the background, unless it is downloading. */
+    /** Downloads the optional file of [kind] in the background (resuming a stopped one), unless it is downloading. */
     fun downloadOptional(kind: String) {
-        if (kind in running.value) return
+        if (kind in running.value || jobs[kind]?.isActive == true) return
         failed.update { it - kind }
-        scope.launch { fetchOptional(kind)?.let { e -> failed.update { it + (kind to e) } } }
+        jobs[kind] = scope.launch { fetchOptional(kind)?.let { e -> failed.update { it + (kind to e) } } }
+    }
+
+    /** Stops (pauses) the download of the optional file of [kind]; its .part stays for the next one. */
+    fun pauseOptional(kind: String) {
+        jobs.remove(kind)?.cancel()
     }
 
     /** Deletes the downloaded optional file of [kind]. */

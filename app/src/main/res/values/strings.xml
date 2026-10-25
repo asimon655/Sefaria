@@ -187,4 +187,7 @@
     <string name="delete_optional_body">The file (%1$s) will be removed from this phone. You can download it again in Settings.</string>
     <string name="prefix_offline_title">Prefix search needs the internet</string>
     <string name="prefix_offline_body">Searching for word* works online only. Offline, search for whole words.</string>
+    <string name="pause_download">Pause download</string>
+    <string name="resume_download">Resume download</string>
+    <string name="resume_download_size">Resume download · %1$s of %2$s</string>
 </resources>

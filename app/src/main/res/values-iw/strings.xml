@@ -187,4 +187,7 @@
     <string name="delete_optional_body">הקובץ (%1$s) יימחק מהטלפון. אפשר להוריד אותו שוב בהגדרות.</string>
     <string name="prefix_offline_title">חיפוש לפי תחילית דורש אינטרנט</string>
     <string name="prefix_offline_body">חיפוש מילה* עובד רק עם חיבור. ללא רשת, חפשו מילים שלמות.</string>
+    <string name="pause_download">השהיית ההורדה</string>
+    <string name="resume_download">המשך ההורדה</string>
+    <string name="resume_download_size">המשך ההורדה · %1$s מתוך %2$s</string>
 </resources>

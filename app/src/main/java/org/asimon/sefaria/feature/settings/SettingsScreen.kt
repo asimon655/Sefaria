@@ -140,6 +140,7 @@ class SettingsViewModel @Inject constructor(
     fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { settings.setKeepScreenOn(v) }
     fun deleteAllDownloads() = viewModelScope.launch { downloads.deleteAll() }
     fun downloadOptional(kind: String) = shared.downloadOptional(kind)
+    fun pauseOptional(kind: String) = shared.pauseOptional(kind)
     fun deleteOptional(kind: String) = viewModelScope.launch { shared.deleteOptional(kind) }
 }
 
@@ -201,7 +202,7 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
                 val optional by vm.optional.collectAsStateWithLifecycle()
                 Text(stringResource(R.string.downloaded_books, books.size, used), style = MaterialTheme.typography.bodyLarge)
                 if (optional.isNotEmpty()) Label(stringResource(R.string.optional_files))
-                for (o in optional) OptionalFileRow(o, onDownload = { vm.downloadOptional(o.kind) }, onDelete = { vm.deleteOptional(o.kind) })
+                for (o in optional) OptionalFileRow(o, onDownload = { vm.downloadOptional(o.kind) }, onPause = { vm.pauseOptional(o.kind) }, onDelete = { vm.deleteOptional(o.kind) })
                 if (books.isNotEmpty() || optional.any { it.installed }) OutlinedButton(onClick = { deleting = true }) {
                     Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Text(stringResource(R.string.delete_all_downloads), Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.error)
