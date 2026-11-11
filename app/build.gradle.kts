@@ -43,6 +43,9 @@ android {
             )
             isMinifyEnabled = true
             isShrinkResources = true
+            // Reproducible builds (README): nothing of the checkout goes into the APK, so a
+            // source archive without .git builds the same bytes as a clone
+            vcsInfo.include = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -52,6 +55,13 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // Reproducible builds: no list of dependencies encrypted with a key of Google's, which
+    // nobody else can read or compare
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     androidResources {

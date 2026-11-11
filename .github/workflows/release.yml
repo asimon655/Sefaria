@@ -1,0 +1,105 @@
+# Builds the release APK for a version tag or a published release, checks that a second build
+# of the same commit gives the same bytes, and attaches the APK and its SHA-256 to the release.
+#
+# Optional settings of the repository:
+#   variable SEFARIA_API_BASE_URL       the server the release talks to (the build's default otherwise)
+#   secrets  SIGNING_KEYSTORE_BASE64    a keystore, base64; with it a signed APK is attached too
+#            SIGNING_KEYSTORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      API_BASE_URL: ${{ vars.SEFARIA_API_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      # only starts Gradle: the build itself runs on the JDK pinned in gradle/gradle-daemon-jvm.properties
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: The tag is the app's version
+        if: startsWith(env.TAG, 'v')
+        run: |
+          name=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
+          if [ "v$name" != "$TAG" ]; then
+            echo "::error::tag $TAG, but app/build.gradle.kts says versionName $name"
+            exit 1
+          fi
+
+      - name: Build
+        run: ./gradlew --no-daemon --no-build-cache ${API_BASE_URL:+-Psefaria.apiBaseUrl="$API_BASE_URL"} :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Name the APK
+        id: apk
+        run: |
+          name=sefaria-${TAG#v}
+          mkdir out
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "out/$name-unsigned.apk"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: A second build, elsewhere, gives the same bytes
+        run: scripts/reproduce.sh ${API_BASE_URL:+-u "$API_BASE_URL"} "out/${{ steps.apk.outputs.name }}-unsigned.apk"
+
+      - name: Sign
+        env:
+          KEYSTORE: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::notice::no signing key in the repository's secrets: only the unsigned APK is attached"
+            exit 0
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KS_PASS --key-pass env:KEY_PASS \
+            --out "out/${{ steps.apk.outputs.name }}.apk" "out/${{ steps.apk.outputs.name }}-unsigned.apk"
+          rm "$RUNNER_TEMP/release.jks"
+          "$apksigner" verify --print-certs "out/${{ steps.apk.outputs.name }}.apk"
+
+      - name: Checksums
+        run: |
+          cd out
+          sha256sum *.apk | tee SHA256SUMS
+          {
+            echo "commit $(git rev-parse HEAD)"
+            echo "api base url ${API_BASE_URL:-the build's default}"
+          } | tee BUILD_INPUTS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: out/
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          gh release upload "$TAG" out/* --clobber
