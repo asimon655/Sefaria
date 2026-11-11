@@ -1,6 +1,8 @@
 package org.asimon.sefaria.data.repo
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.asimon.sefaria.data.local.BookName
@@ -50,19 +52,20 @@ class TocRepository(
 
     /**
      * One level of the tree: the category at [path] (English names from the top; empty: the top
-     * level), its children, and the books under each child.
+     * level), its children, and the books under each child. Runs off the main thread: a screen
+     * opening keeps it busy, and resuming there between the queries waited for it (some 200 ms).
      */
-    suspend fun level(path: List<String>): Load<TocLevel> {
+    suspend fun level(path: List<String>): Load<TocLevel> = withContext(Dispatchers.Default) {
         val r = syncToc()
-        if (r is Load.Err) return r
+        if (r is Load.Err) return@withContext r
         val offline = (r as Load.Ok).offline
         var node: TocNode? = null
         for (name in path) node = dao.tocCategory(node?.id, name)
-            ?: return Load.Ok(TocLevel(null, emptyList(), emptyMap()), offline) // not in this build's tree
+            ?: return@withContext Load.Ok(TocLevel(null, emptyList(), emptyMap()), offline) // not in this build's tree
         val children = dao.tocChildren(node?.id)
         val ids = children.associate { it.id to TocLevel.key(it.dto()) }
         val under = dao.booksUnder(node?.id).groupBy({ ids.getValue(it.root) }, { it.title })
-        return Load.Ok(TocLevel(node?.dto(), children.map { it.dto() }, under), offline)
+        Load.Ok(TocLevel(node?.dto(), children.map { it.dto() }, under), offline)
     }
 
     /** Every book's names (TOC order), for offline completion; empty if no tree is stored. */

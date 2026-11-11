@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.data.repo.DownloadRepository
+import org.asimon.sefaria.data.repo.TocRepository
 import org.asimon.sefaria.data.datasource.CachedFetcher
 import org.asimon.sefaria.work.DownloadWorker
 import org.asimon.sefaria.work.MaintenanceWorker
@@ -28,6 +29,7 @@ class App : Application(), Configuration.Provider {
     @Inject lateinit var scope: CoroutineScope
     @Inject lateinit var fetcher: Lazy<CachedFetcher>
     @Inject lateinit var downloads: Lazy<DownloadRepository>
+    @Inject lateinit var toc: Lazy<TocRepository>
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
@@ -37,6 +39,12 @@ class App : Application(), Configuration.Provider {
         super.onCreate()
         // the build id now: it decides whether the first screen's cached responses are current
         scope.launch { fetcher.get().refreshBuildIfStale() }
+        // the library tree, once the first screen is up: opens the database and reads the stored
+        // tree's build (or fetches a new build's tree) now, not when the Library tab is opened
+        scope.launch {
+            Startup.ready.await()
+            toc.get().syncToc()
+        }
         scope.launch {
             Startup.ready.await()
             MaintenanceWorker.schedule(this@App)
