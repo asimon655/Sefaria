@@ -3,6 +3,10 @@ package org.asimon.sefaria.feature.book
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.LaunchedEffect
@@ -185,6 +189,10 @@ fun BookScreen(
                 var altOpen by rememberSaveable { mutableStateOf(setOf<String>()) }
                 val catalog = remember(book) { Catalog(listOf(book)) }
                 val open = { ref: String -> onOpen(ReaderRoute(book.title, ref)) }
+                // where Continue reading goes, as a slot: the parts holding it show a mark
+                val last = remember(catalog, position?.ref) {
+                    position?.ref?.let { Ref.parseOrNull(catalog, it) }?.let { runCatching { it.slots().first }.getOrNull() }
+                }
                 LazyColumn(contentPadding = padding) {
                     item { Header(book) }
                     item {
@@ -210,13 +218,13 @@ fun BookScreen(
                     if (alt != null) {
                         val rows = altRows(alt.key, alt.value, altOpen)
                         items(rows, key = { it.key }) { r ->
-                            AltRow(r, catalog, book, expanded = r.key in altOpen, open = open) {
+                            AltRow(r, catalog, book, last, expanded = r.key in altOpen, open = open) {
                                 altOpen = if (r.key in altOpen) altOpen - r.key else altOpen + r.key
                             }
                             HorizontalDivider()
                         }
                     } else {
-                        item { Structure(book, book.root, hebrewUi(), open, top = true) }
+                        item { Structure(book, book.root, hebrewUi(), open, last, top = true) }
                     }
                     item { Versions(book) }
                 }
@@ -276,10 +284,22 @@ private fun gridLabel(addrType: String, i: Int, hebrew: Boolean): String = when 
     else -> Hebrew.gematria(i + 1)
 }
 
-/** The schema tree: complex nodes expand; jagged nodes show a grid of their top-level sections. */
+/** Marks the part of the book last read (the slot Continue reading opens at). */
+@Composable
+private fun LastReadIcon() = Icon(
+    Icons.Outlined.History,
+    contentDescription = stringResource(R.string.last_read),
+    tint = MaterialTheme.colorScheme.primary,
+    modifier = Modifier.size(16.dp),
+)
+
+/**
+ * The schema tree: complex nodes expand; jagged nodes show a grid of their top-level sections.
+ * The section and the nodes holding the slot [last] (the last read) carry [LastReadIcon].
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) -> Unit, top: Boolean = false) {
+private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) -> Unit, last: Int?, top: Boolean = false) {
     if (node.isJagged) {
         val shape = node.shape
         val nodeRef = Ref(book, node)
@@ -296,14 +316,29 @@ private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) ->
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val type = node.addressTypes[0]
+            val lastSection = remember(node, last) {
+                if (last == null || last !in node.slotStart until node.slotEnd) -1
+                else (0 until shape.n).firstOrNull { i ->
+                    shape.sub?.get(i) != null && runCatching { last in Ref(book, node, listOf(i)).slots() }.getOrDefault(false)
+                } ?: -1
+            }
             for (i in 0 until shape.n) {
                 if (shape.sub?.get(i) == null) continue
-                OutlinedCard(onClick = { open(Ref(book, node, listOf(i)).url()) }, Modifier.widthIn(min = 48.dp)) {
-                    Text(
-                        gridLabel(type, i, hebrew),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp).widthIn(min = 28.dp),
-                    )
+                val here = i == lastSection
+                OutlinedCard(
+                    onClick = { open(Ref(book, node, listOf(i)).url()) },
+                    Modifier.widthIn(min = 48.dp),
+                    colors = if (here) CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        else CardDefaults.outlinedCardColors(),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(gridLabel(type, i, hebrew), textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 28.dp))
+                        if (here) LastReadIcon()
+                    }
                 }
             }
         }
@@ -314,9 +349,10 @@ private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) ->
         for (child in node.children.orEmpty()) {
             if (child.slotEnd == child.slotStart) continue // no text in this node
             if (child.isDefault) {
-                Structure(book, child, hebrew, open)
+                Structure(book, child, hebrew, open, last)
                 continue
             }
+            val here = last != null && last in child.slotStart until child.slotEnd
             val leaf = child.isJagged && child.depth < 2
             var expanded by rememberSaveable(child.key) { mutableStateOf(false) }
             Row(
@@ -327,9 +363,10 @@ private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) ->
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(if (hebrew && child.he.isNotEmpty()) child.he else child.en, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                if (!leaf) Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, Modifier.size(20.dp))
+                if (here) LastReadIcon()
+                if (!leaf) Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null, Modifier.padding(start = 8.dp).size(20.dp))
             }
-            if (expanded) Structure(book, child, hebrew, open)
+            if (expanded) Structure(book, child, hebrew, open, last)
             HorizontalDivider()
         }
     }
@@ -373,9 +410,14 @@ private fun inBook(catalog: Catalog, book: Book, url: String, hebrew: Boolean): 
 }
 
 @Composable
-private fun AltRow(r: AltRowData, catalog: Catalog, book: Book, expanded: Boolean, open: (String) -> Unit, onExpand: () -> Unit) {
+private fun AltRow(r: AltRowData, catalog: Catalog, book: Book, last: Int?, expanded: Boolean, open: (String) -> Unit, onExpand: () -> Unit) {
     val hebrew = hebrewUi()
     val n = r.node
+    // the row whose ref holds the last read slot (a node without a ref: none)
+    val here = remember(r.ref, last) {
+        last != null && r.ref.isNotEmpty() &&
+            Ref.parseOrNull(catalog, r.ref)?.let { runCatching { last in it.slots() }.getOrDefault(false) } == true
+    }
     val names = stringArrayResource(R.array.aliyah_names)
     val heNames = remember { listOf("ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שביעי") }
     val range = remember(r.ref, hebrew) { if (r.ref.isEmpty()) "" else inBook(catalog, book, r.ref, hebrew) }
@@ -400,6 +442,7 @@ private fun AltRow(r: AltRowData, catalog: Catalog, book: Book, expanded: Boolea
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, Modifier.weight(1f), style = if (r.expandable) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyLarge)
                 if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Rtl))
+                if (here) Row { Spacer(Modifier.width(8.dp)); LastReadIcon() }
             }
             // the verses an aliyah covers; the range of a named node is in the reader
             if (r.aliyah != null && range.isNotEmpty()) Text(

@@ -17,6 +17,7 @@
 
     <!-- book -->
     <string name="continue_reading">Continue reading</string>
+    <string name="last_read">Last read</string>
     <string name="start">Start</string>
     <string name="start_reading">Start reading</string>
     <string name="contents">Contents</string>
