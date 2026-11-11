@@ -6,7 +6,12 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -66,6 +71,14 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
         val enFont = stringPreferencesKey("en_font")
     }
 
+    private val _loaded = MutableStateFlow(false)
+
+    /**
+     * False until [prefs] holds what is stored and not its placeholder. The first frame waits for
+     * it (MainActivity), so a stored theme, text size or layout never flashes in after the default.
+     */
+    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+
     val prefs: StateFlow<Prefs> = store.data.map { p ->
         Prefs(
             serverUrl = p[K.serverUrl] ?: defaultUrl,
@@ -86,7 +99,11 @@ class Settings(private val store: DataStore<Preferences>, scope: CoroutineScope,
             heFont = p[K.heFont] ?: "",
             enFont = p[K.enFont] ?: "",
         )
-    }.stateIn(scope, SharingStarted.Eagerly, Prefs(defaultUrl))
+    }.catch { e ->
+        // an unreadable store: the defaults, rather than a first frame that never comes
+        Log.w("Settings", "cannot read the settings", e)
+        emit(Prefs(defaultUrl, onboarded = false, notificationsAsked = false))
+    }.onEach { _loaded.value = true }.stateIn(scope, SharingStarted.Eagerly, Prefs(defaultUrl))
 
     /** The stored server URL, read from disk (not the initial placeholder of [prefs]). */
     suspend fun serverUrl(): String = store.data.first()[K.serverUrl] ?: defaultUrl

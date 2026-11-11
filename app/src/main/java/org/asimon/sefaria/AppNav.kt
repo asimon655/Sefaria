@@ -17,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Search
+import org.asimon.sefaria.feature.search.SearchTabScreen
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldLayout
 import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationRail
@@ -63,6 +65,7 @@ private data class Tab(val route: Any, val type: KClass<*>, @StringRes val label
 private val tabs = listOf(
     Tab(HomeRoute, HomeRoute::class, R.string.tab_home, Icons.Outlined.Home),
     Tab(LibraryRoute(), LibraryRoute::class, R.string.tab_library, Icons.AutoMirrored.Outlined.LibraryBooks),
+    Tab(SearchTabRoute, SearchTabRoute::class, R.string.tab_search, Icons.Outlined.Search),
     Tab(SavedRoute, SavedRoute::class, R.string.tab_saved, Icons.Outlined.Bookmarks),
 )
 
@@ -77,7 +80,10 @@ internal fun AppNav(labels: Boolean) {
     val dest = entry?.destination
     val showBar = dest != null && !dest.hasRoute(ReaderRoute::class) && !dest.hasRoute(SettingsRoute::class)
     fun selected(tab: Tab) = dest?.hierarchy?.any { it.hasRoute(tab.type) } == true ||
-        (tab.type == LibraryRoute::class && dest?.hasRoute(BookRoute::class) == true)
+        (tab.type == LibraryRoute::class && dest?.hasRoute(BookRoute::class) == true) ||
+        (tab.type == SearchTabRoute::class && dest?.hasRoute(SearchRoute::class) == true)
+    // a tap on the search tab while it shows: back to its field, focused, with the keyboard up
+    var focusSearch by remember { mutableIntStateOf(0) }
     // which way a tab switch slides (+1: to the next tab, -1: to the previous); 0 for every other navigation
     var slide by remember { mutableIntStateOf(0) }
     // every other forward navigation fades, as before
@@ -86,8 +92,16 @@ internal fun AppNav(labels: Boolean) {
         nav.navigate(route)
     }
     val current = tabs.indexOfFirst(::selected)
-    fun goTab(i: Int) {
-        if (i !in tabs.indices || i == current) return
+    fun goTab(i: Int, tapped: Boolean = false) {
+        if (i !in tabs.indices) return
+        if (i == current) {
+            if (!tapped || tabs[i].type != SearchTabRoute::class) return
+            slide = 0
+            // from the results (or a search started in a book), back to the field
+            if (dest?.hasRoute(SearchTabRoute::class) != true && !nav.popBackStack(SearchTabRoute, inclusive = false)) nav.switchTab(SearchTabRoute)
+            focusSearch++
+            return
+        }
         if (current >= 0) slide = if (i > current) 1 else -1
         nav.switchTab(tabs[i].route)
     }
@@ -102,7 +116,7 @@ internal fun AppNav(labels: Boolean) {
     // the scaffold's own bar has a fixed height, so the layout gets ours
     Surface(color = MaterialTheme.colorScheme.background) {
     NavigationSuiteScaffoldLayout(
-        navigationSuite = { TabBar(type, labels, ::selected) { goTab(tabs.indexOf(it)) } },
+        navigationSuite = { TabBar(type, labels, ::selected) { goTab(tabs.indexOf(it), tapped = true) } },
         navigationSuiteType = type,
     ) {
         val open = { route: Any -> push(route) }
@@ -136,8 +150,7 @@ internal fun AppNav(labels: Boolean) {
             composable<LibraryRoute> {
                 LibraryScreen(
                     onCategory = { push(it) },
-                    onBook = { push(BookRoute(it)) },
-                    onOpen = open,
+                    onBook = { nav.toBook(it, ::push) },
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -145,7 +158,13 @@ internal fun AppNav(labels: Boolean) {
                 BookScreen(onOpen = { push(it) }, onBack = { nav.popBackStack() })
             }
             composable<ReaderRoute>(typeMap = ReaderRoute.typeMap) {
-                ReaderScreen(onBack = { nav.popBackStack() }, onOpen = { push(it) }, onTrail = { slide = 0; nav.backAlongTrail(it) })
+                ReaderScreen(
+                    onBack = { nav.popBackStack() }, onOpen = { push(it) }, onTrail = { slide = 0; nav.backAlongTrail(it) },
+                    onBook = { nav.toBook(it, ::push) },
+                )
+            }
+            composable<SearchTabRoute> {
+                SearchTabScreen(onOpen = open, focusRequests = focusSearch)
             }
             composable<SearchRoute> {
                 SearchScreen(onOpen = { push(it) }, onBack = { nav.popBackStack() })
@@ -161,9 +180,13 @@ internal fun AppNav(labels: Boolean) {
     }
 }
 
-/** How long a tab switch slides; other screens fade in [FADE_MS], Navigation's default. */
+/**
+ * How long a tab switch slides, and how long other screens fade. Navigation's default fade is
+ * 700 ms, which made every tap feel slow; a screen that takes the whole display reads as
+ * instant at about 200.
+ */
 private const val TAB_SLIDE_MS = 280
-private const val FADE_MS = 700
+private const val FADE_MS = 200
 
 /** The bottom bar's height without labels (with them, the standard 80dp). */
 private val ShortBarHeight = 56.dp
@@ -191,6 +214,13 @@ private fun NavHostController.switchTab(route: Any) = navigate(route) {
     popUpTo(graph.findStartDestination().id) { saveState = true }
     launchSingleTop = true
     restoreState = true
+}
+
+/** The book's page: back to it when the reader was opened from it, else a new one ([push]). */
+private fun NavHostController.toBook(title: String, push: (Any) -> Unit) {
+    val below = previousBackStackEntry
+    if (below?.destination?.hasRoute(BookRoute::class) == true && below.toRoute<BookRoute>().title == title) popBackStack()
+    else push(BookRoute(title))
 }
 
 /**

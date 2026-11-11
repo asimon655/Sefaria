@@ -1,5 +1,8 @@
 package org.asimon.sefaria.feature.reader
 
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.combinedClickable
 import kotlinx.coroutines.flow.flowOf
 import androidx.compose.runtime.DisposableEffect
@@ -37,6 +40,7 @@ import org.asimon.sefaria.ui.components.hebrewUi
 import org.asimon.sefaria.ui.components.text
 import org.asimon.sefaria.data.AppError
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import org.asimon.sefaria.R
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -112,6 +116,7 @@ fun ReaderScreen(
     onBack: () -> Unit,
     onOpen: (ReaderRoute) -> Unit,
     onTrail: (Int) -> Unit, // go back to step i of the source trail
+    onBook: (String) -> Unit, // the book's page, with its table of contents
     vm: ReaderViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -196,7 +201,19 @@ fun ReaderScreen(
                         }) { Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.share)) }
                     },
                 ) else CenterAlignedTopAppBar(
-                    title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    // a tap on the title opens the book's table of contents
+                    title = {
+                        Row(
+                            Modifier
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(onClickLabel = stringResource(R.string.contents)) { onBook(s.bookTitle) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            Icon(Icons.Filled.ArrowDropDown, contentDescription = null, Modifier.size(20.dp))
+                        }
+                    },
                     navigationIcon = { BackButton(onBack) },
                     actions = {
                         if (s.offline) Icon(Icons.Outlined.CloudOff, contentDescription = stringResource(R.string.offline_copy), Modifier.padding(end = 8.dp))
@@ -391,8 +408,12 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: (
             Modifier
                 .fillMaxWidth()
                 .background(bg)
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .semantics { contentDescription = refLabel }
+                // A screen reader reads the row as one: the verse's ref (in place of its bare
+                // number), then its text. A description on the row itself would replace the text.
+                .combinedClickable(
+                    onClick = onClick, onClickLabel = stringResource(R.string.a11y_open_connections),
+                    onLongClick = onLongClick, onLongClickLabel = stringResource(R.string.a11y_select_verse),
+                )
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             // the number, with the link count under it, so text columns stay aligned
@@ -402,12 +423,14 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: (
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier.semantics { contentDescription = refLabel },
                 )
+                val linksLabel = pluralStringResource(R.plurals.a11y_connections, item.links, item.links)
                 if (item.links > 0) Text(
                     item.links.toString(),
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.semantics { contentDescription = "" },
+                    modifier = Modifier.semantics { contentDescription = linksLabel },
                 )
             }
             Spacer(Modifier.width(6.dp))

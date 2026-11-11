@@ -50,9 +50,16 @@ private object TrailNavType : NavType<List<TrailStep>>(isNullableAllowed = false
     override fun serializeAsValue(value: List<TrailStep>): String = Uri.encode(TrailStep.encode(value))
 }
 
-/** Full-text results for [q], optionally within [book]. */
+/** The search tab: the field, with suggestions as you type (refs, books, places in books). */
 @Serializable
-data class SearchRoute(val q: String, val book: String? = null)
+data object SearchTabRoute
+
+/**
+ * Full-text results for [q], optionally within [book] or within [scope]: the books and
+ * categories chosen before searching, as Scope.encode writes them ("": the whole library).
+ */
+@Serializable
+data class SearchRoute(val q: String, val book: String? = null, val scope: String = "")
 
 @Serializable
 data object HomeRoute

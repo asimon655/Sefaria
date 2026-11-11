@@ -143,6 +143,12 @@ fun ErrorMessage(error: AppError, onRetry: (() -> Unit)?, modifier: Modifier = M
             Triple(Art.Offline, stringResource(R.string.server_down_title), stringResource(R.string.server_down_body))
         error == AppError.PrefixOffline ->
             Triple(Art.Offline, stringResource(R.string.prefix_offline_title), error.text())
+        error is AppError.Busy ->
+            Triple(Art.Error, stringResource(R.string.error_busy_title), error.text())
+        error == AppError.SearchTimeout ->
+            Triple(Art.NoResults, stringResource(R.string.error_search_timeout_title), error.text())
+        error is AppError.Storage ->
+            Triple(Art.Error, stringResource(R.string.error_storage_title), error.text())
         else -> Triple(Art.Error, stringResource(R.string.error_title), error.text())
     }
     EmptyState(art, title, body, modifier, compact) {

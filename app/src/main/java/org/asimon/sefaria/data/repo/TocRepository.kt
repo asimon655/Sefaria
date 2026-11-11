@@ -9,7 +9,6 @@ import org.asimon.sefaria.data.local.TocNode
 import org.asimon.sefaria.data.local.dto
 import org.asimon.sefaria.data.local.importToc
 import org.asimon.sefaria.data.remote.Api
-import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.TocDto
 import org.asimon.sefaria.data.remote.TocNodeDto
@@ -71,6 +70,9 @@ class TocRepository(
 
     @Volatile private var tocBuild: String? = null // the build the stored tree is from, once read
 
+    /** The build of the stored tree, once something has read it; what's made from the tree is kept until this changes. */
+    val storedBuild: String? get() = tocBuild
+
     /**
      * Brings the stored tree up to the server's build: kept while the build is the same, else
      * downloaded again. Ok with the build of the tree in the table ([Load.Ok.offline] when the
@@ -97,8 +99,7 @@ class TocRepository(
                     else Load.Ok(build.also { dao.stampBuild(it); tocBuild = it })
                 }
                 is ApiResult.Failure ->
-                    if (have != null && r.error !is ApiError.Http) Load.Ok(have, offline = true)
-                    else Load.Err(r.error.toAppError())
+                    r.error.toAppError().let { e -> if (have != null && e.transient) Load.Ok(have, offline = true) else Load.Err(e) }
             }
         } finally {
             file.delete()

@@ -73,4 +73,16 @@ class MigrationTest {
         old.prepare("SELECT COUNT(*) FROM bookmark").use { st -> st.step(); assertEquals(1L, st.getLong(0)) }
         old.close()
     }
+
+    @Test
+    fun version2To3() {
+        val old = create(2)
+        old.execSQL("INSERT INTO installed_file(file, kind, book, he, bytes, sfb, norm) VALUES('a.sfb', 'book', 'Genesis', 'בראשית', 10, '', 0)")
+        old.execSQL("INSERT INTO bookmark(book, ref, label, he_label, preview, created_at) VALUES('Genesis', 'Genesis.1.1', 'Genesis 1:1', 'בראשית א:א', '', 1)")
+        SefariaDb.MIGRATION_2_3.migrate(old)
+        assertEquals(shape(create(3)), shape(old)) // the user's tables are gone (they are UserDb's now)
+        // what is downloaded stays known: a fresh start would make the next tidy delete it all
+        old.prepare("SELECT book FROM installed_file").use { st -> st.step(); assertEquals("Genesis", st.getText(0)) }
+        old.close()
+    }
 }

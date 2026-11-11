@@ -76,6 +76,13 @@ import org.asimon.sefaria.feature.downloads.OptionalFileRow
 import android.text.format.Formatter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Delete
+import org.asimon.sefaria.data.repo.DownloadState
+import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.FlowPreview
+import androidx.compose.material.icons.outlined.Refresh
 import org.asimon.sefaria.ui.AppLanguage
 import org.asimon.sefaria.ui.DeviceFont
 import org.asimon.sefaria.ui.DeviceFonts
@@ -87,6 +94,7 @@ import javax.inject.Inject
 /** The device's fonts that have Hebrew letters, and those with Latin ones. */
 data class FontChoices(val he: List<DeviceFont>, val en: List<DeviceFont>)
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: Settings,
@@ -98,6 +106,12 @@ class SettingsViewModel @Inject constructor(
     /** Disk used by downloaded books, and how many there are. */
     val downloadBytes = downloads.bytes
     val downloaded = downloads.installed
+    /** Downloads that stopped on an error that waiting doesn't cure (no room, a bad file); the rest retry by themselves. */
+    val failedDownloads: StateFlow<Int> = downloads.downloads.sample(500)
+        .map { m -> m.values.count { it is DownloadState.Failed } }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    fun retryFailedDownloads() = viewModelScope.launch { downloads.retryFailed() }
     /** The optional files (connections, search filters) the server offers. */
     val optional = shared.optional.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _build = MutableStateFlow<String?>(null)
@@ -203,6 +217,11 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
                 Text(stringResource(R.string.downloaded_books, books.size, used), style = MaterialTheme.typography.bodyLarge)
                 if (optional.isNotEmpty()) Label(stringResource(R.string.optional_files))
                 for (o in optional) OptionalFileRow(o, onDownload = { vm.downloadOptional(o.kind) }, onPause = { vm.pauseOptional(o.kind) }, onDelete = { vm.deleteOptional(o.kind) })
+                val failed by vm.failedDownloads.collectAsStateWithLifecycle()
+                if (failed > 0) OutlinedButton(onClick = vm::retryFailedDownloads) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Text(stringResource(R.string.retry_failed_downloads, failed), Modifier.padding(start = 8.dp))
+                }
                 if (books.isNotEmpty() || optional.any { it.installed }) OutlinedButton(onClick = { deleting = true }) {
                     Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Text(stringResource(R.string.delete_all_downloads), Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.error)

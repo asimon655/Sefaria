@@ -1,5 +1,7 @@
 package org.asimon.sefaria.core.ref
 
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
 import org.asimon.sefaria.core.text.Hebrew
 
 /**
@@ -25,6 +27,9 @@ data class Ref(
     fun slots(): IntRange {
         val n = node
         if (!n.isJagged || sections.isEmpty()) return n.slotStart until n.slotEnd
+        debugAssert(sections.size <= n.depth && (to == null || to.size == sections.size)) {
+            "ref into ${book.title} with sections $sections to $to at depth ${n.depth}"
+        }
         val shape = n.shape ?: throw RefException(RefError.OutOfRange, url())
         val r = shape.range(sections) ?: throw RefException(RefError.OutOfRange, url())
         var end = r.last + 1
@@ -77,6 +82,7 @@ data class Ref(
     companion object {
         /** Parses a ref in any accepted form; throws [RefException]. */
         fun parse(catalog: Catalog, input: String): Ref {
+            if (input.toByteArray().size > MAX_LEN) throw RefException(RefError.BadSection, "ref too long")
             val s = Hebrew.normalizeTitle(input)
             val (book, rest0) = matchBook(catalog, s)
                 ?: throw RefException(RefError.UnknownTitle, input)
@@ -101,14 +107,23 @@ data class Ref(
         fun parseOrNull(catalog: Catalog, input: String): Ref? =
             try { parse(catalog, input) } catch (_: RefException) { null }
 
+        /** The longest input [parse] reads, in bytes (as the server's ref.MaxLen). */
+        const val MAX_LEN = 512
+
         /** The segment ref of a slot in a book (slot in [0, book.slots)). */
         fun at(book: Book, slot: Int): Ref {
+            debugAssert(slot >= 0 && slot < book.slots) { "slot $slot of ${book.title}, which has ${book.slots}" }
             var n = book.root
             while (!n.isJagged) {
                 n = n.children!!.firstOrNull { slot >= it.slotStart && slot < it.slotEnd }
                     ?: return Ref(book, book.root)
             }
-            return Ref(book, n, n.shape!!.path(slot - n.slotStart))
+            val r = Ref(book, n, n.shape!!.path(slot - n.slotStart))
+            debugOnly {
+                val back = runCatching { r.slots() }.getOrNull()
+                debugAssert(back == slot..slot) { "slot $slot of ${book.title} gave $r, which is slots $back" }
+            }
+            return r
         }
 
         // cut positions where a title may end: end of string or before a separator
@@ -137,19 +152,41 @@ data class Ref(
             val types = r.node.addressTypes
             val fromTokens = splitSections(from)
             val start = unoffset(r.node, parseLabels(types, fromTokens), 0)
-            if (dash < 0) {
-                // a bare daf number ("Nedarim 37") means both amudim
+            val endTokens = if (dash < 0) emptyList() else splitSections(s.substring(dash + 1))
+            if (start.isEmpty()) {
+                if (endTokens.isNotEmpty()) throw RefException(RefError.BadSection, "range end without a start")
+                return r // only separators ("Genesis -"): the node itself
+            }
+            if (endTokens.isEmpty()) { // no range; a trailing dash ("Genesis 1-") is none either
                 val last = start.size - 1
-                if (types[last] == "Talmud" && fromTokens[last].all(Char::isDigit)) {
-                    return r.copy(sections = start, to = start.toMutableList().also { it[last]++ })
-                }
+                if (types[last] == "Talmud" && !hasAmud(fromTokens[last])) return bareDaf(r.copy(sections = start), last)
                 return r.copy(sections = start)
             }
-            val endTokens = splitSections(s.substring(dash + 1))
             if (endTokens.size > start.size) throw RefException(RefError.BadSection, "range end longer than start")
             val k = start.size - endTokens.size // right-aligned: Genesis 1:1-5
             val end = parseLabels(types.drop(k), endTokens)
             return r.copy(sections = start, to = unoffset(r.node, start.take(k) + end, k))
+        }
+
+        /** Whether a daf label names its amud ("2a"); without one ("37", "לז") it means the whole daf. */
+        private fun hasAmud(t: String) = t.length > 1 && (t.last() == 'a' || t.last() == 'b')
+
+        /**
+         * A daf given without an amud ("Nedarim 37", "נדרים לז"), whose amud a is [r]'s section at
+         * [level]: both amudim when the text has both, else the one it has. A tractate's last daf
+         * often ends on amud a ("Berakhot 64"), and some start on amud b ("Tamid 25"). With
+         * neither, the ref stays the whole daf, and resolving it says it is out of range.
+         */
+        private fun bareDaf(r: Ref, level: Int): Ref {
+            val b = r.sections.toMutableList().also { it[level]++ }
+            val shape = r.node.shape
+            val hasA = shape?.range(r.sections) != null
+            val hasB = shape?.range(b) != null
+            return when {
+                hasA && !hasB -> r
+                hasB && !hasA -> r.copy(sections = b)
+                else -> r.copy(to = b)
+            }
         }
 
         /** Turns labels (number - 1) at levels from.. into indices, undoing numbering offsets. */

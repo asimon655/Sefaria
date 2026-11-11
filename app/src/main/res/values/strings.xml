@@ -61,7 +61,6 @@
     <string name="search_lang_en">English</string>
     <string name="search_scope_all">All of the library</string>
     <string name="search_scope_title">Search in</string>
-    <string name="search_scope_more">+%1$d more</string>
     <string name="search_scope_downloaded">Downloaded books</string>
     <string name="search_scope_clear">All of the library</string>
     <string name="search_scope_filter">Filter by title</string>
@@ -190,4 +189,50 @@
     <string name="pause_download">Pause download</string>
     <string name="resume_download">Resume download</string>
     <string name="resume_download_size">Resume download · %1$s of %2$s</string>
+    <string name="search_scope_remove">Remove %1$s</string>
+    <string name="search_scope_downloaded_n">Downloaded books (%1$d)</string>
+    <string name="search_scope_no_match">No category or book matches “%1$s”</string>
+    <string name="expand">Expand</string>
+    <string name="collapse">Collapse</string>
+    <string-array name="aliyah_names">
+        <item>Rishon</item><item>Sheni</item><item>Shlishi</item><item>Revi\'i</item><item>Chamishi</item><item>Shishi</item><item>Shvi\'i</item>
+    </string-array>
+    <string name="error_rejected">The server refused the request: %1$s</string>
+    <string name="error_rejected_plain">The server refused the request</string>
+    <string name="error_busy_title">The server is busy</string>
+    <string name="error_busy">Too many requests just now. Try again in a moment.</string>
+    <string name="error_search_timeout_title">This search took too long</string>
+    <string name="error_search_timeout">Try more words, a phrase in quotes, or fewer books.</string>
+    <string name="error_storage_title">Not enough storage</string>
+    <string name="error_storage">This needs %1$s; the phone has %2$s free.</string>
+    <string name="download_no_room">Not enough room on this phone: %1$s free.</string>
+    <string name="retry_failed_downloads">Retry %1$d failed downloads</string>
+    <string name="notification_pause">Pause</string>
+    <string name="clear_history_title">Clear the history?</string>
+    <string name="clear_history_body">All %1$d visits will be removed. Bookmarks and reading positions stay.</string>
+    <string name="bookmark_removed">Bookmark removed</string>
+    <string name="undo">Undo</string>
+    <string name="a11y_open_connections">Show connections</string>
+    <string name="a11y_select_verse">Select</string>
+    <plurals name="a11y_connections">
+        <item quantity="one">%1$d connection</item>
+        <item quantity="other">%1$d connections</item>
+    </plurals>
+    <!-- the search tab: the scope chosen before searching, and things to try -->
+    <string name="search_in_one">in %1$s</string>
+    <string name="search_in_more">in %1$s and %2$d more</string>
+    <string name="search_examples_open_title">Open a book or a place in it</string>
+    <string name="search_examples_words_title">Search the texts</string>
+    <string-array name="search_examples_open">
+        <item>Genesis 1:1</item>
+        <item>Berakhot 2a</item>
+        <item>Mishneh Torah</item>
+        <item>Minchah</item>
+        <item>Bereshit Rishon</item>
+    </string-array>
+    <string-array name="search_examples_words">
+        <item>love your neighbor</item>
+        <item>\"tree of life\"</item>
+        <item>repair the world</item>
+    </string-array>
 </resources>

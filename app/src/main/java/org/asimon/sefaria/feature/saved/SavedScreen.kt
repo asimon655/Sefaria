@@ -9,6 +9,16 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import org.asimon.sefaria.feature.downloads.ConfirmDelete
+import org.asimon.sefaria.data.local.Bookmark
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -55,6 +65,8 @@ class SavedViewModel @Inject constructor(private val user: UserDataRepository, s
     val prefs = settings.prefs
 
     fun clearHistory() = viewModelScope.launch { user.clearHistory() }
+    fun removeBookmark(b: Bookmark) = viewModelScope.launch { user.removeBookmark(b) }
+    fun restoreBookmark(b: Bookmark) = viewModelScope.launch { user.restoreBookmark(b) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,12 +80,23 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
     val scope = rememberCoroutineScope()
     val tab = pager.currentPage
     val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+    var clearing by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val removed = stringResource(R.string.bookmark_removed)
+    val undo = stringResource(R.string.undo)
+    if (clearing) ConfirmDelete(
+        title = stringResource(R.string.clear_history_title),
+        body = stringResource(R.string.clear_history_body, history.size),
+        onConfirm = { clearing = false; vm.clearHistory() },
+        onDismiss = { clearing = false },
+    )
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.tab_saved)) },
                 actions = {
-                    if (tab == 1 && history.isNotEmpty()) IconButton(onClick = vm::clearHistory) {
+                    if (tab == 1 && history.isNotEmpty()) IconButton(onClick = { clearing = true }) {
                         Icon(Icons.Outlined.DeleteSweep, contentDescription = stringResource(R.string.clear_history))
                     }
                 },
@@ -98,6 +121,16 @@ fun SavedScreen(onOpen: (ReaderRoute) -> Unit, vm: SavedViewModel = hiltViewMode
                             ListItem(
                                 headlineContent = { Text(pick(b.label, b.heLabel)) },
                                 supportingContent = { Text(b.preview, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                                // removed at once, with a moment to take it back
+                                trailingContent = {
+                                    IconButton(onClick = {
+                                        vm.removeBookmark(b)
+                                        scope.launch {
+                                            snackbar.currentSnackbarData?.dismiss()
+                                            if (snackbar.showSnackbar(removed, undo, duration = SnackbarDuration.Short) == SnackbarResult.ActionPerformed) vm.restoreBookmark(b)
+                                        }
+                                    }) { Icon(Icons.Outlined.BookmarkRemove, contentDescription = stringResource(R.string.remove_bookmark)) }
+                                },
                                 modifier = Modifier.clickable { onOpen(ReaderRoute(b.book, b.ref)) },
                             )
                             HorizontalDivider()

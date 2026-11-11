@@ -1,5 +1,8 @@
 package org.asimon.sefaria.data.local
 
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.asimon.sefaria.data.remote.SefariaJson
@@ -38,6 +41,7 @@ data class BookText(val lang: String, val version: Int, val slots: Int, val bloc
 
     /** The block holding [slot]. */
     fun blockOf(slot: Int): Int {
+        debugAssert(blocks.isNotEmpty() && slot >= 0 && slot < slots) { "slot $slot of a $lang text of $slots slots in ${blocks.size} blocks" }
         var lo = 0
         var hi = blocks.size - 1
         while (lo < hi) {
@@ -120,6 +124,13 @@ class LinkRecords(
             for (i in 0 until n) ds[i] = next()
             for (i in 0 until n) de[i] = ds[i] + next()
             for (i in 0 until n) ty[i] = next()
+            debugAssert(pos == p.size) { "$n link records took $pos of ${p.size} bytes" }
+            debugOnly {
+                for (i in 0 until n) {
+                    debugAssert(ss[i] < se[i] && ds[i] < de[i]) { "link record $i: source [${ss[i]}, ${se[i]}), target [${ds[i]}, ${de[i]})" }
+                    debugAssert(i == 0 || ss[i - 1] <= ss[i]) { "link records $i and ${i - 1} are out of order: a range is found by binary search" }
+                }
+            }
             return LinkRecords(ss, se, db, ds, de, ty)
         }
     }
@@ -177,7 +188,9 @@ class BookFile(file: File, dicts: (String) -> ByteArray?) : LibraryFile(file, "S
     fun block(t: BookText, i: Int): List<String> {
         val b = t.blocks[i]
         val s = inflate(read(Span(b[1], b[2])), dict).decodeToString()
-        return s.removeSuffix("\n").split('\n')
+        val lines = s.removeSuffix("\n").split('\n')
+        debugAssert(lines.size == t.end(i) - t.first(i)) { "${file.name} ${t.lang} block $i: ${lines.size} lines for slots [${t.first(i)}, ${t.end(i)})" }
+        return lines
     }
 
     companion object {

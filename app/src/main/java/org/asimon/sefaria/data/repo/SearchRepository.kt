@@ -6,12 +6,15 @@ import org.asimon.sefaria.core.text.SearchText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import org.asimon.sefaria.core.debugAssert
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.map
 import org.asimon.sefaria.data.local.InstalledDao
 import org.asimon.sefaria.data.local.LibraryFiles
 import org.asimon.sefaria.data.local.LibraryReader
 import org.asimon.sefaria.data.remote.Api
-import org.asimon.sefaria.data.remote.ApiError
 import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
@@ -68,14 +71,24 @@ class SearchRepository(
     }
 
     suspend fun page(q: String, filter: SearchFilter = SearchFilter(), cursor: String? = null, limit: Int = PAGE): Load<SearchPage> {
+        var online: AppError? = null
         if (cursor?.startsWith(OFFLINE) != true) {
             when (val r = api.search(q, filter, cursor, limit)) {
                 is ApiResult.Ok -> return Load.Ok(SearchPage(r.value.lang, r.value.hits, r.value.next, offline = false, forms = r.value.forms))
-                is ApiResult.Failure -> if (r.error !is ApiError.Network || cursor != null) return Load.Err(r.error.toAppError())
+                is ApiResult.Failure -> {
+                    // A first page the server can't give just now (no network, busy, too slow,
+                    // failing) comes from the downloaded books instead. Later pages don't switch
+                    // sides: the two order their hits differently.
+                    val e = r.error.toAppError()
+                    if (!e.transient || cursor != null) return Load.Err(e)
+                    online = e
+                }
                 ApiResult.NotModified -> return Load.Ok(SearchPage(filter.lang.orEmpty(), emptyList(), null, offline = false))
             }
         }
-        return offline(q, filter, cursor?.removePrefix(OFFLINE), limit)
+        val r = offline(q, filter, cursor?.removePrefix(OFFLINE), limit)
+        // nothing on the phone to search: the server's own error says more than "no network"
+        return if (r is Load.Err && r.error == AppError.Network && online != null) Load.Err(online) else r
     }
 
     private suspend fun offline(q: String, filter: SearchFilter, cursor: String?, limit: Int): Load<SearchPage> = withContext(Dispatchers.Default) {
@@ -103,23 +116,42 @@ class SearchRepository(
         var after = parts?.getOrNull(2)?.toIntOrNull() ?: -1
         val hits = mutableListOf<SearchHitDto>()
         var next: String? = null
+        // Books are searched several at a time, on every core, and their hits taken in book
+        // order, so the page is the one a book-by-book search gives. A run of books with nothing
+        // (a rare word: most are ruled out by their filter or index) widens the batch; a hit
+        // narrows it again, since a batch searched past the end of the page is work thrown away.
         tiers@ while (tier <= 2 && (tier == 1 || expanded)) {
+            var width = BATCH_MIN
             while (bi < books.size) {
-                val title = books[bi]
-                // books decoded for hits stay in the session, not in the reader's cache
-                val book = suspend { s.decoded(title) { (bookRepo.book(title, remember = false) as? Load.Ok)?.value } }
-                val found = offline.search(title, book, lang, clauses, tier, after, limit - hits.size, reader = s).orEmpty()
-                hits += found.map { it.second }
-                if (hits.size == limit) {
-                    next = "$OFFLINE$tier:$bi:${found.last().first}"
-                    break@tiers
+                val batch = books.subList(bi, minOf(bi + width, books.size))
+                val need = limit - hits.size
+                val firstAfter = after
+                val found = coroutineScope {
+                    batch.mapIndexed { i, title ->
+                        async {
+                            // books decoded for hits stay in the session, not in the reader's cache
+                            val book = suspend { s.decoded(title) { (bookRepo.book(title, remember = false) as? Load.Ok)?.value } }
+                            offline.search(title, book, lang, clauses, tier, if (i == 0) firstAfter else -1, need, reader = s).orEmpty()
+                        }
+                    }.awaitAll()
                 }
-                bi++
+                for ((i, f) in found.withIndex()) {
+                    debugAssert(f.zipWithNext().all { (a, b) -> a.first < b.first }) { "hits of ${batch[i]} are not in reading order" }
+                    val take = f.take(limit - hits.size)
+                    hits += take.map { it.second }
+                    if (hits.size == limit) {
+                        next = "$OFFLINE$tier:${bi + i}:${take.last().first}"
+                        break@tiers
+                    }
+                }
+                bi += batch.size
                 after = -1
+                width = if (found.all { it.isEmpty() }) minOf(width * 2, BATCH_MAX) else BATCH_MIN
             }
             tier++
             bi = 0
         }
+        debugAssert(hits.size <= limit && (next == null || hits.size == limit)) { "an offline page of ${hits.size} hits for a limit of $limit, next $next" }
         val forms = buildMap { for (c in clauses) for (w in c) if (w.forms.isNotEmpty()) put(w.text, w.forms.keys.sorted()) }
         return Load.Ok(SearchPage(lang, hits, next, offline = true, forms = forms))
     }
@@ -130,6 +162,10 @@ class SearchRepository(
 
     companion object {
         const val PAGE = 20
+
+        /** Books searched at once offline: from one per core, up to [BATCH_MAX] while nothing is found. */
+        private val BATCH_MIN = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        private const val BATCH_MAX = 256
 
         /** How an offline cursor starts. */
         private const val OFFLINE = "o:"

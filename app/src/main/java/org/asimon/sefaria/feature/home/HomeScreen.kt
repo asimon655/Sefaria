@@ -56,7 +56,6 @@ import org.asimon.sefaria.R
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.data.local.HistoryEntry
 import org.asimon.sefaria.data.repo.UserDataRepository
-import org.asimon.sefaria.feature.search.SearchBox
 import org.asimon.sefaria.ui.components.pick
 import javax.inject.Inject
 
@@ -103,7 +102,7 @@ class HomeViewModel @Inject constructor(
     }
 }
 
-/** Where was I, and where to go: search, the last book read, and other recent books. */
+/** Where was I, and where to go: the last book read, today's learning, and other recent books. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(onOpen: (Any) -> Unit, onSettings: () -> Unit, vm: HomeViewModel = hiltViewModel()) {
@@ -124,7 +123,6 @@ fun HomeScreen(onOpen: (Any) -> Unit, onSettings: () -> Unit, vm: HomeViewModel 
         },
     ) { padding ->
         LazyColumn(contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = 24.dp)) {
-            item(key = "search") { SearchBox(onOpen, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
             val list = recent ?: return@LazyColumn
             val first = list.firstOrNull()
             if (first == null) item(key = "empty") {

@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.datasource
 
+import org.asimon.sefaria.core.debugAssert
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -43,8 +45,10 @@ class OfflineSearch(private val reader: BookReader) {
             if (reader.filter(title)?.let { mayMatch(it, q, exact) } == false) return@withContext emptyList()
             val candidates = reader.index(title)?.let { candidateBlocks(it, lang, q, exact) }
             if (candidates != null && candidates.isEmpty()) return@withContext emptyList()
+            debugAssert(limit > 0 && after >= -1 && (tier == 1 || tier == 2)) { "search of $title: tier $tier, after slot $after, limit $limit" }
             val f = reader.book(title) ?: return@withContext null
             val t = f.text(lang) ?: return@withContext emptyList()
+            debugAssert(candidates == null || candidates.all { it >= 0 && it < t.blocks.size }) { "$title: its index names blocks $candidates, the book has ${t.blocks.size}" }
             val out = ArrayList<Pair<Int, SearchHitDto>>()
             val from = after + 1
             if (from >= t.slots) return@withContext out

@@ -10,7 +10,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.LayoutDirection
-import org.asimon.sefaria.feature.search.SearchBox
 import org.asimon.sefaria.data.AppError
 import androidx.compose.ui.res.stringResource
 import org.asimon.sefaria.R
@@ -101,7 +100,6 @@ class LibraryViewModel @Inject constructor(
 fun LibraryScreen(
     onCategory: (LibraryRoute) -> Unit,
     onBook: (String) -> Unit,
-    onOpen: (Any) -> Unit, // a search result
     onBack: () -> Unit,
     vm: LibraryViewModel = hiltViewModel(),
     downloads: DownloadsViewModel = hiltViewModel(),
@@ -131,9 +129,6 @@ fun LibraryScreen(
             else -> {
               val desc = s.title?.let { t -> prose(t.desc.en, t.desc.he).ifEmpty { prose(t.short.en, t.short.he) } }.orEmpty()
               LazyColumn(contentPadding = padding) {
-                if (s.route.names.isEmpty()) item(key = "search") {
-                    SearchBox(onOpen, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                }
                 if (desc.isNotEmpty()) {
                     item {
                         Text(

@@ -172,4 +172,23 @@ class TocRepositoryTest {
         assertEquals("Shulchan Arukh, Orach Chayim", titles("orach").first())
         assertEquals(listOf("Genesis", "Rashi on Genesis"), titles("gen"))
     }
+
+    @Test
+    fun localCompletionNeedsNoServerAndAnswersAreKept() = runTest {
+        build.current = "b1"
+        store(toc("b1"))
+        val completion = CompletionRepository(api, repo())
+        // the phone's own matches: no request is made for them
+        assertEquals(listOf("Genesis", "Rashi on Genesis"), completion.local("gen").map { it.book })
+        assertEquals(listOf("Genesis", "Rashi on Genesis"), completion.local("gen").map { it.book }) // from the kept names
+        assertEquals(0, server.requestCount)
+        assertEquals(null, completion.answered("gen"))
+        // the server's answer is asked for once
+        val answer = """{"items":[{"kind":"ref","ref":"Genesis.1","title":"Genesis 1","he":"בראשית א","book":"Genesis"}]}"""
+        server.enqueue(MockResponse.Builder().body(answer).build())
+        assertEquals(listOf("Genesis.1"), (completion.complete("gen 1") as Load.Ok).value.map { it.ref })
+        assertEquals(listOf("Genesis.1"), completion.answered("gen 1")?.map { it.ref })
+        assertEquals(listOf("Genesis.1"), (completion.complete("gen 1") as Load.Ok).value.map { it.ref })
+        assertEquals(1, server.requestCount)
+    }
 }

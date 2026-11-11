@@ -2,7 +2,9 @@ package org.asimon.sefaria.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import android.text.format.Formatter
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import org.asimon.sefaria.R
@@ -44,6 +46,11 @@ fun AppError.text(): String = when (this) {
     AppError.Network -> stringResource(R.string.error_network)
     // the server's detail is English: only an English interface shows it
     is AppError.NotFound -> if (hebrewUi()) stringResource(R.string.error_not_found_plain) else stringResource(R.string.error_not_found, detail)
+    // the server's detail is English here too
+    is AppError.Rejected -> if (hebrewUi()) stringResource(R.string.error_rejected_plain) else stringResource(R.string.error_rejected, detail)
+    is AppError.Busy -> stringResource(R.string.error_busy)
+    AppError.SearchTimeout -> stringResource(R.string.error_search_timeout)
+    is AppError.Storage -> stringResource(R.string.error_storage, Formatter.formatShortFileSize(LocalContext.current, needed), Formatter.formatShortFileSize(LocalContext.current, free))
     is AppError.Server -> stringResource(R.string.error_server, status)
     is AppError.BadResponse -> stringResource(R.string.error_bad_response)
     AppError.NoText -> stringResource(R.string.error_no_text)

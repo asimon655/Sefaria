@@ -98,6 +98,13 @@ class DownloadWorker @AssistedInject constructor(
             .apply { if (seen.isNotEmpty()) setContentText(ctx.getString(R.string.notification_books_done, done, seen.size)) }
             .setProgress(seen.size, done, seen.isEmpty())
             .setContentIntent(open)
+            .addAction(
+                android.R.drawable.ic_media_pause, ctx.getString(R.string.notification_pause),
+                PendingIntent.getBroadcast(
+                    ctx, 0, Intent(ctx, DownloadActionReceiver::class.java).setAction(DownloadActionReceiver.PAUSE_ALL),
+                    PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)

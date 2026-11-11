@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.local
 
+import org.asimon.sefaria.core.debugAssert
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.asimon.sefaria.core.text.Forms
@@ -132,6 +134,7 @@ class LibraryReader(private val files: LibraryFiles) : OfflineSource, BookReader
             val first = t.first(i)
             out.addAll(lines.subList(maxOf(start - first, 0), minOf(end, t.end(i)) - first))
         }
+        debugAssert(out.size == end - start) { "${b.file.name} ${t.lang}: ${out.size} lines for slots [$start, $end)" }
         out
     }
 

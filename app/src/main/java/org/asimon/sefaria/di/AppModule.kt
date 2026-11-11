@@ -1,18 +1,22 @@
 package org.asimon.sefaria.di
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.Call
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import org.asimon.sefaria.BuildConfig
@@ -23,6 +27,7 @@ import org.asimon.sefaria.data.local.LibraryFiles
 import org.asimon.sefaria.data.local.LibraryInstaller
 import org.asimon.sefaria.data.local.LibraryReader
 import org.asimon.sefaria.data.local.SefariaDb
+import org.asimon.sefaria.data.local.UserDb
 import org.asimon.sefaria.data.remote.Api
 import org.asimon.sefaria.data.datasource.BuildInfo
 import org.asimon.sefaria.data.datasource.CachedFetcher
@@ -52,7 +57,17 @@ private val Context.dataStore by preferencesDataStore("settings")
 @InstallIn(SingletonComponent::class)
 object AppModule {
     @Provides @Singleton
-    fun appScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun appScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default + AppFailures)
+
+    /**
+     * What happens to an exception nothing caught in a coroutine of the app scope (a download, a
+     * library sync): logged, and the scope's other work carries on, where the default would end the
+     * process. A debug build still stops on it: a failed assertion or a bug is there to be seen.
+     */
+    private val AppFailures = CoroutineExceptionHandler { _, e ->
+        Log.e("Sefaria", "uncaught in the app scope", e)
+        if (BuildConfig.DEBUG) Thread.currentThread().let { it.uncaughtExceptionHandler?.uncaughtException(it, e) }
+    }
 
     @Provides @Singleton
     fun settings(@ApplicationContext ctx: Context, scope: CoroutineScope) =
@@ -63,8 +78,21 @@ object AppModule {
         Room.databaseBuilder(ctx, SefariaDb::class.java, "sefaria.db")
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
-            .addMigrations(SefariaDb.MIGRATION_1_2)
+            .addMigrations(SefariaDb.MIGRATION_1_2, SefariaDb.MIGRATION_2_3)
             // before the first release the schema may still change freely: a version with no migration starts empty
+            .fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
+
+    /**
+     * The user's bookmarks, history and positions. One file, no write-ahead log beside it: a
+     * backup copies user.db alone, and with a log part of the data would be in a file it leaves.
+     */
+    @Provides @Singleton
+    fun userDb(@ApplicationContext ctx: Context): UserDb =
+        Room.databaseBuilder(ctx, UserDb::class.java, UserDb.FILE)
+            .setDriver(BundledSQLiteDriver())
+            .setQueryCoroutineContext(Dispatchers.IO)
+            .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
@@ -81,6 +109,10 @@ object AppModule {
     fun okHttp(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        // Calls run on OkHttp's own threads (so a cancelled coroutine cancels its call), which
+        // by default take 5 at a time to one host: fewer than the downloads alone, with the
+        // reader's requests waiting behind them.
+        .dispatcher(Dispatcher().apply { maxRequestsPerHost = 24 })
         .build()
 
     /**
@@ -168,5 +200,5 @@ object AppModule {
     fun calendar(api: Api, fetcher: CachedFetcher) = CalendarRepository(api, fetcher)
 
     @Provides @Singleton
-    fun userData(db: SefariaDb) = UserDataRepository(db.user())
+    fun userData(db: UserDb) = UserDataRepository(db.user())
 }

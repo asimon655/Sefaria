@@ -1,5 +1,7 @@
 package org.asimon.sefaria.feature.reader
 
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
 import org.asimon.sefaria.data.AppError
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -101,7 +103,7 @@ private class Chunk(val section: Ref, val text: SectionText) {
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
-    handle: SavedStateHandle,
+    private val handle: SavedStateHandle,
     private val books: BookRepository,
     private val texts: TextRepository,
     private val user: UserDataRepository,
@@ -116,7 +118,9 @@ class ReaderViewModel @Inject constructor(
     val state = _state.asStateFlow()
 
     private var book: Book? = null
-    private val chunks = ArrayList<Chunk>() // mutated on the main thread only
+    private val window = SectionWindow<Chunk>(MAX_SECTIONS, TRIM_MARGIN) // mutated on the main thread only
+    private val chunks: List<Chunk> get() = window.sections
+    private var visible = 0..0 // the rows on screen, as last reported (item indexes)
     private var highlight: IntRange = IntRange.EMPTY // slots
     private val hebrewUi = MutableStateFlow(false)
     private var opts = DisplayOpts(settings.prefs.value, hebrewUi.value)
@@ -145,13 +149,18 @@ class ReaderViewModel @Inject constructor(
 
     fun open() = viewModelScope.launch {
         _state.value = ReaderState(bookTitle = route.book)
+        awaitingInitialScroll = true
         val b = when (val r = books.book(route.book)) {
             is Load.Ok -> r.value
             is Load.Err -> return@launch fail(r.error)
         }
         book = b
         _state.update { it.copy(bookTitle = b.title, bookHe = b.he, bookCategory = b.dto.categories.firstOrNull().orEmpty()) }
-        val target = Ref.parseOrNull(Catalog(listOf(b)), route.ref) ?: Ref(b, b.root)
+        // After the system ended the process in the background, the reader comes back where it
+        // was read to (kept in the saved state), not where it was first opened; nothing is
+        // highlighted then, as for any restored position.
+        val restored = handle.get<String>(KEY_AT)?.let { Ref.parseOrNull(Catalog(listOf(b)), it) }
+        val target = restored ?: Ref.parseOrNull(Catalog(listOf(b)), route.ref) ?: Ref(b, b.root)
         val section = try {
             target.openSection()
         } catch (e: RefException) {
@@ -160,13 +169,13 @@ class ReaderViewModel @Inject constructor(
         val focus: Int? = runCatching {
             if (target.isSegment || target.isRange) target.slots() else null
         }.getOrNull()?.let { slots ->
-            if (route.highlight) highlight = if (slots.count() <= MAX_HIGHLIGHT) slots else slots.first..slots.first
+            if (route.highlight && restored == null) highlight = if (slots.count() <= MAX_HIGHLIGHT) slots else slots.first..slots.first
             slots.first
         }
         when (val r = texts.section(section)) {
             is Load.Ok -> {
-                chunks.clear()
-                chunks.add(Chunk(section, r.value))
+                window.reset(Chunk(section, r.value))
+                parsed.clear()
                 _state.update { it.copy(offline = r.offline) }
             }
             is Load.Err -> return@launch fail(r.error)
@@ -188,10 +197,19 @@ class ReaderViewModel @Inject constructor(
         if (awaitingInitialScroll) return
         val items = _state.value.items
         if (items.isEmpty()) return
-        if (first <= PREFETCH_ITEMS) loadPrev()
-        if (last >= items.size - 1 - PREFETCH_ITEMS) loadNext()
-        val top = items.drop(first.coerceAtLeast(0)).firstOrNull { it is SegmentItem } as? SegmentItem
-        if (top != null) position.value = top.ref
+        debugAssert(first <= last && last < items.size + 1) { "rows $first..$last on screen of ${items.size}" }
+        visible = first.coerceAtLeast(0)..last.coerceAtLeast(0)
+        if (first <= PREFETCH_BEHIND) loadPrev()
+        if (last >= items.size - 1 - PREFETCH_AHEAD) loadNext()
+        var top: SegmentItem? = null
+        for (i in first.coerceAtLeast(0) until items.size) {
+            top = items[i] as? SegmentItem ?: continue
+            break
+        }
+        if (top != null) {
+            position.value = top.ref
+            handle[KEY_AT] = top.key
+        }
     }
 
     fun loadNext() {
@@ -203,7 +221,8 @@ class ReaderViewModel @Inject constructor(
         viewModelScope.launch {
             when (val r = texts.section(next)) {
                 is Load.Ok -> {
-                    chunks.add(Chunk(next, r.value))
+                    if (chunks.isEmpty() || b.nextSection(chunks.last().section)?.url() != next.url()) return@launch // reopened meanwhile
+                    forget(window.append(Chunk(next, r.value), visible, ::rowsOf))
                     publish()
                     _state.update { it.copy(loadingNext = false, offline = it.offline || r.offline) }
                 }
@@ -221,7 +240,8 @@ class ReaderViewModel @Inject constructor(
         viewModelScope.launch {
             when (val r = texts.section(prev)) {
                 is Load.Ok -> {
-                    chunks.add(0, Chunk(prev, r.value))
+                    if (chunks.isEmpty() || b.prevSection(chunks.first().section)?.url() != prev.url()) return@launch // reopened meanwhile
+                    forget(window.prepend(Chunk(prev, r.value), visible, ::rowsOf))
                     publish()
                     _state.update { it.copy(loadingPrev = false, offline = it.offline || r.offline) }
                 }
@@ -247,6 +267,11 @@ class ReaderViewModel @Inject constructor(
 
     private fun fail(error: AppError) = _state.update { it.copy(loading = false, error = error) }
 
+    // The rows a held section gives the list (parsed when it was published).
+    private fun rowsOf(c: Chunk): Int = parsed[c.key]?.size ?: (c.text.size + 1)
+
+    private fun forget(dropped: List<Chunk>) = dropped.forEach { parsed.remove(it.key) }
+
     private suspend fun publish(): List<ReaderItem> {
         val b = book ?: return emptyList()
         val snapshot = chunks.toList()
@@ -257,6 +282,12 @@ class ReaderViewModel @Inject constructor(
         for (c in snapshot) {
             items += parsed[c.key] ?: withContext(Dispatchers.Default) { itemsFor(c, o, hl) }.also {
                 if (o == opts) parsed[c.key] = it
+            }
+        }
+        debugOnly {
+            debugAssert(items.map { it.key }.toSet().size == items.size) { "two rows of the reader share a key: the list would crash" }
+            for (i in 1 until snapshot.size) debugAssert(b.nextSection(snapshot[i - 1].section)?.url() == snapshot[i].section.url()) {
+                "${snapshot[i].key} doesn't follow ${snapshot[i - 1].key}: the window must hold neighbouring sections"
             }
         }
         _state.update {
@@ -299,7 +330,19 @@ class ReaderViewModel @Inject constructor(
     private fun SegmentItem.slot(sectionStart: Int) = runCatching { ref.slots().first }.getOrDefault(sectionStart)
 
     companion object {
-        const val PREFETCH_ITEMS = 4
+        /**
+         * How near the end of what is loaded (in rows) the next section is fetched: about a screen
+         * and a half ahead, so on a slow network it is there before the reader is. Behind, less:
+         * most reading goes forward.
+         */
+        const val PREFETCH_AHEAD = 24
+        const val PREFETCH_BEHIND = 8
         const val MAX_HIGHLIGHT = 30
+        /** Sections held at once; the far end goes when a new one comes in (SectionWindow). */
+        const val MAX_SECTIONS = 9
+        /** Rows off screen that a section must clear before it may be dropped. */
+        const val TRIM_MARGIN = 40
+        /** Saved state: the segment at the top of the screen, as a URL ref. */
+        private const val KEY_AT = "at"
     }
 }

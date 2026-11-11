@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.local
 
+import org.asimon.sefaria.core.debugAssert
+
 import kotlinx.serialization.Serializable
 import org.asimon.sefaria.data.remote.SefariaJson
 import java.io.File
@@ -85,6 +87,9 @@ class IndexFile(val file: File) {
         val out = IntArray(p.gamma().toInt())
         out[0] = p.fixed(width).toInt()
         for (i in 1 until out.size) out[i] = out[i - 1] + p.gamma().toInt()
+        debugAssert(out.last() < maxOf(t.blocks, 1) && (1 until out.size).all { out[it - 1] < out[it] }) {
+            "${file.name}: blocks ${out.toList()} of ${t.blocks} for a word: they must ascend and exist"
+        }
         return out
     }
 

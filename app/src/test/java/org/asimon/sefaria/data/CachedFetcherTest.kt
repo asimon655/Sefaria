@@ -89,4 +89,37 @@ class CachedFetcherTest {
         // another book, or no book given: the usual cache/network path
         assertEquals(Load.Ok("net"), packed.get("k", { it }, book = "Exodus", fetch = respond(ApiResult.Ok("net", "net", "\"b2\""))))
     }
+
+    @Test
+    fun busyOrFailingServerServesCache() = runTest {
+        cache.put(CacheEntry("k", "cached", "\"b1\"", 0, 0))
+        build.current = "b2"
+        // what waiting may cure (5xx, 429): the copy we have, marked offline
+        for (e in listOf(ApiError.Http(503, "internal", "down"), ApiError.Http(429, "rate_limited", "slow down", retryAfter = 1))) {
+            assertEquals(Load.Ok("cached", offline = true), fetcher.get("k", { it }, fetch = respond(ApiResult.Failure(e))))
+        }
+        // what it won't (the new build doesn't have this ref): the error
+        val gone = fetcher.get("k", { it }, fetch = respond(ApiResult.Failure(ApiError.Http(404, "ref_not_found", "gone"))))
+        assertEquals(Load.Err(AppError.NotFound("gone")), gone)
+    }
+
+    @Test
+    fun unreadableCacheEntryIsDroppedAndFetchedAgain() = runTest {
+        cache.put(CacheEntry("k", "old shape", "\"b1\"", 0, 0))
+        build.current = "b1" // current: without the drop it would fail on every read
+        val decode: suspend (String) -> String = { if (it == "old shape") throw IllegalArgumentException("unknown field") else it }
+        assertEquals(Load.Ok("new"), fetcher.get("k", decode, fetch = respond(ApiResult.Ok("new", "new", "\"b1\""))))
+        assertEquals(listOf<String?>(null), calls) // asked without an ETag: a 304 would be no help
+        assertEquals("new", cache.rows["k"]!!.json)
+    }
+
+    @Test
+    fun aResponseFromALaterBuildMovesTheBuildOn() = runTest {
+        build.current = "2025-09-21-20261013T2345"
+        fetcher.get("a", { it }, fetch = respond(ApiResult.Ok("v", "v", "W/\"2025-12-01-20261201T0000\"")))
+        assertEquals("2025-12-01-20261201T0000", build.current)
+        // an older one (a cache's stale copy) doesn't move it back
+        fetcher.get("b", { it }, fetch = respond(ApiResult.Ok("v", "v", "\"2025-09-21-20261013T2345\"")))
+        assertEquals("2025-12-01-20261201T0000", build.current)
+    }
 }

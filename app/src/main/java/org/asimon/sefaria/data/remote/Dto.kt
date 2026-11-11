@@ -22,6 +22,8 @@ data class ManifestDto(
     @SerialName("dump_date") val dumpDate: String = "",
     val format: Int = 0,
     val books: Int = 0,
+    /** The checksum of the build's library listing (the ETag of /v1/library); "" from a server without one. */
+    val library: String = "",
 )
 
 @Serializable
@@ -179,7 +181,7 @@ data class ResolveDto(
 @Serializable
 data class CompleteDto(val items: List<CompletionDto> = emptyList())
 
-/** [kind] is "ref" (the query parsed as a ref) or "book". */
+/** [kind] is "ref" (the query parsed as a ref), "book", or "section" (a named place in a book: [ref] opens it, [title] and [he] are its path, "Siddur Ashkenaz - Weekday - Minchah"). */
 @Serializable
 data class CompletionDto(
     val kind: String,
@@ -257,6 +259,8 @@ data class ErrorDto(val error: ErrorBody) {
 data class LibraryDto(
     val format: Int = 0,
     @SerialName("build_id") val buildId: String = "",
+    /** The normaliser version of the index files and word filters; 0 when the listing doesn't say. */
+    val norm: Int = 0,
     val dict: LibraryFileDto,
     val books: List<LibraryFileDto> = emptyList(),
     val links: LibraryFileDto? = null,

@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.local
 
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
@@ -93,15 +95,27 @@ abstract class ListingDao {
     open suspend fun putListing(l: LibraryDto, build: String) {
         val queued = queuedBooks().toHashSet()
         clearListing()
-        fun row(f: LibraryFileDto, kind: String) = ListedFile(f.file, kind, f.book, f.he, f.bytes, f.index, f.indexBytes, kind == FileKind.BOOK && f.book in queued)
-        insertListed(
-            l.books.map { row(it, FileKind.BOOK) } + row(l.dict, FileKind.DICT) +
-                listOfNotNull(
-                    l.links?.let { row(it, FileKind.LINKS) },
-                    l.forms?.let { row(it, FileKind.FORMS) },
-                    l.filters?.let { row(it, FileKind.FILTERS) },
-                )
+        // Index files and word filters made for another normaliser are no use to this app (it
+        // would download each, find that out, and delete it, on every sync): they aren't listed.
+        // A listing that doesn't say (norm 0) is taken at its word, and each file checked on install.
+        val usable = l.norm == 0 || l.norm == IndexFile.NORMALIZE_VERSION
+        fun row(f: LibraryFileDto, kind: String) = ListedFile(
+            f.file, kind, f.book, f.he, f.bytes,
+            if (usable) f.index else "", if (usable) f.indexBytes else 0,
+            kind == FileKind.BOOK && f.book in queued,
         )
+        val rows = l.books.map { row(it, FileKind.BOOK) } + row(l.dict, FileKind.DICT) +
+            listOfNotNull(
+                l.links?.let { row(it, FileKind.LINKS) },
+                l.forms?.let { row(it, FileKind.FORMS) },
+                l.filters?.takeIf { usable }?.let { row(it, FileKind.FILTERS) },
+            )
+        debugOnly {
+            debugAssert(rows.map { it.file }.toSet().size == rows.size) { "the listing names a file twice: files are named by their content" }
+            debugAssert(l.books.map { it.book }.toSet().size == l.books.size) { "the listing has a book twice" }
+            debugAssert(rows.all { it.bytes > 0 && it.file.substringBefore('.').length == 64 }) { "a listed file without a size or a sha256 name" }
+        }
+        insertListed(rows)
         stampBuild(build)
     }
 

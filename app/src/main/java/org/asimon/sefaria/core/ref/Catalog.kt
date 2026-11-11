@@ -1,5 +1,8 @@
 package org.asimon.sefaria.core.ref
 
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
+
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -150,6 +153,28 @@ class Book(val dto: BookDto) {
     val he get() = dto.he
     val root: Node = Node.from(dto.schema)
     val slots get() = root.slotEnd
+
+    init {
+        debugOnly { checkLayout(root) }
+        debugAssert(root.slotStart == 0 && (dto.slots == 0 || dto.slots == slots)) { "$title: its schema covers slots [${root.slotStart}, ${root.slotEnd}), the book says ${dto.slots}" }
+    }
+
+    // Slots are laid out depth first: a jagged node has as many as its shape, and a node's
+    // children follow one another without a gap (SERVER_SPEC §4.2). Every ref rests on it.
+    private fun checkLayout(n: Node) {
+        val ch = n.children
+        if (ch == null) {
+            debugAssert(n.slotEnd - n.slotStart == (n.shape?.size ?: 0)) { "$title, node ${n.key}: slots [${n.slotStart}, ${n.slotEnd}) for a shape of ${n.shape?.size ?: 0}" }
+            return
+        }
+        var at = n.slotStart
+        for (c in ch) {
+            debugAssert(c.slotStart == at && c.slotEnd >= at) { "$title, node ${c.key}: slots [${c.slotStart}, ${c.slotEnd}) don't follow $at" }
+            at = c.slotEnd
+            checkLayout(c)
+        }
+        debugAssert(at == n.slotEnd) { "$title, node ${n.key}: its children end at slot $at, it at ${n.slotEnd}" }
+    }
 }
 
 /** Books by any of their titles (primary first, so an alternate title never shadows a primary one). */

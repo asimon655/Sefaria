@@ -1,5 +1,8 @@
 package org.asimon.sefaria.data.local
 
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
+
 import androidx.room.Transactor
 import androidx.room.execSQL
 import androidx.room.useWriterConnection
@@ -30,6 +33,12 @@ suspend fun SefariaDb.importToc(file: File): String = useWriterConnection { c ->
         c.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
             execSQL("DELETE FROM toc_node")
             execSQL("INSERT INTO toc_node($TOC_COLUMNS) SELECT $TOC_COLUMNS FROM src.toc_node")
+            debugOnly {
+                val (nodes, orphans) = usePrepared(
+                    "SELECT COUNT(*), SUM(parent IS NOT NULL AND parent NOT IN (SELECT id FROM toc_node WHERE kind = 'category')) FROM toc_node"
+                ) { it.step(); it.getLong(0) to it.getLong(1) }
+                debugAssert(nodes > 0 && orphans == 0L) { "the imported tree has $nodes nodes, $orphans of them under no category" }
+            }
             usePrepared("INSERT OR REPLACE INTO synced(what, build) VALUES(?, ?)") {
                 it.bindText(1, Synced.TOC)
                 it.bindText(2, build)

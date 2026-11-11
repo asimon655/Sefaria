@@ -21,6 +21,7 @@ import org.asimon.sefaria.data.Settings
 import android.text.format.Formatter
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
@@ -113,6 +114,8 @@ class DownloadsViewModel @Inject constructor(
 
     fun download(book: String) = viewModelScope.launch { if (listing.isListed(book)) repo.download(book) }
     fun downloadAll(books: Collection<String>) = viewModelScope.launch { repo.downloadAll(books) }
+    /** Room left on the phone for downloads, in bytes. */
+    suspend fun freeBytes(): Long = repo.freeBytes()
     fun cancelAll(books: Collection<String>) = repo.cancelAll(books)
     fun cancel(book: String) = repo.cancel(book)
     fun downloadOptional(kind: String) = shared.downloadOptional(kind)
@@ -472,6 +475,8 @@ fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asB
     val extra by vm.extra.collectAsStateWithLifecycle()
     var asking by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    // the room on the phone, read when the dialog opens: a download that can't fit isn't started
+    val free by produceState<Long?>(null, asking) { value = if (asking) vm.freeBytes() else null }
     // nothing until the server's listing is known (offline, deleting stays possible from each
     // book's page and the settings)
     if (s == null) return
@@ -499,6 +504,12 @@ fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asB
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.download_confirm, s.missing, size(s.missingBytes)))
                     if (extra > 0) ExtraNote(extra)
+                    free?.let { f ->
+                        if (s.missingBytes + extra > f) Text(
+                            stringResource(R.string.download_no_room, size(f)),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     if (wholeLibrary) OptionalButtons(vm) else OptionalNote(vm)
                     if (s.have > 0) TextButton(onClick = { asking = false; deleting = true }) {
                         Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
@@ -507,7 +518,11 @@ fun GroupDownload(name: String, books: List<String>, vm: DownloadsViewModel, asB
                 }
             },
             // downloadAll queues only the books that are listed and not downloaded and current
-            confirmButton = { TextButton(onClick = { asking = false; vm.downloadAll(books) }) { Text(stringResource(R.string.download)) } },
+            confirmButton = {
+                TextButton(onClick = { asking = false; vm.downloadAll(books) }, enabled = free?.let { s.missingBytes + extra <= it } ?: true) {
+                    Text(stringResource(R.string.download))
+                }
+            },
             dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }

@@ -36,7 +36,7 @@ class App : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         // the build id now: it decides whether the first screen's cached responses are current
-        scope.launch { fetcher.get().refreshBuild() }
+        scope.launch { fetcher.get().refreshBuildIfStale() }
         scope.launch {
             Startup.ready.await()
             MaintenanceWorker.schedule(this@App)

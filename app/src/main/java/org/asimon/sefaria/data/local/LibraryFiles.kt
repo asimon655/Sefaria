@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.local
 
+import org.asimon.sefaria.core.debugAssert
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -64,6 +66,8 @@ class LibraryFiles(val dir: File, private val dao: InstalledDao) {
 
     /** Records [new] in place of [old], then deletes the old files. Call inside [writing]. */
     suspend fun replace(old: List<InstalledFile>, new: InstalledFile) {
+        debugAssert(writes.isLocked) { "replace(${new.file}) outside writing { }: installs and deletes must run one at a time" }
+        debugAssert(file(new.file).exists()) { "${new.file} is recorded as installed, but the file isn't there" }
         changes.incrementAndGet()
         dao.replaceInstalled(old.map { it.file }, listOf(new))
         old.forEach(::forget)
@@ -72,6 +76,7 @@ class LibraryFiles(val dir: File, private val dao: InstalledDao) {
 
     /** Deletes files and their rows. Call inside [writing]. */
     suspend fun remove(rows: List<InstalledFile>) {
+        debugAssert(writes.isLocked) { "remove outside writing { }: installs and deletes must run one at a time" }
         if (rows.isEmpty()) return
         changes.incrementAndGet()
         dao.replaceInstalled(rows.map { it.file }, emptyList())

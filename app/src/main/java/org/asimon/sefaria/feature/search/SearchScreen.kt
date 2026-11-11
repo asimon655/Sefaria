@@ -3,7 +3,28 @@ package org.asimon.sefaria.feature.search
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.style.TextOverflow
+import org.asimon.sefaria.core.text.TitleMatch
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -56,7 +77,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.asimon.sefaria.R
 import org.asimon.sefaria.ReaderRoute
@@ -93,6 +117,8 @@ data class SearchResultsState(
     val drop: Set<String> = emptySet(),
     val forms: Map<String, List<String>> = emptyMap(),
     val toc: List<TocNodeDto> = emptyList(),
+    /** [toc] as the scope picker reads it; built once, off the main thread. */
+    val tree: ScopeTree = ScopeTree(emptyList()),
     val hits: List<SearchHitDto> = emptyList(),
     val next: String? = null,
     val loading: Boolean = false,
@@ -119,11 +145,28 @@ class SearchResultsViewModel @Inject constructor(
     private var job: Job? = null
 
     init {
-        viewModelScope.launch {
+        val tree = viewModelScope.launch {
             val toc = tocRepo.toc()
-            if (toc is Load.Ok) _state.update { s -> s.copy(toc = toc.value.tree) }
+            if (toc is Load.Ok) {
+                val tree = withContext(Dispatchers.Default) { ScopeTree(toc.value.tree) }
+                _state.update { s -> s.copy(toc = toc.value.tree, tree = tree) }
+            }
         }
-        more()
+        if (route.scope.isEmpty()) more()
+        else viewModelScope.launch {
+            // a scope chosen before searching (the search tab)
+            val downloaded = if (Scope.needsDownloaded(route.scope)) search.downloaded.first() else emptySet()
+            val scope = Scope.decode(route.scope, downloaded)
+            _state.update { it.copy(books = it.books + scope.books, categories = scope.categories) }
+            // the tree says it in few names (ScopeTree.compact); without it every title would go in the request
+            if (scope.books.size > COMPACT_FROM) tree.join()
+            more()
+        }
+    }
+
+    private companion object {
+        /** A scope of more books than this waits for the tree, to be sent as categories where it can. */
+        const val COMPACT_FROM = 20
     }
 
     /** A new query typed on the results page: its results replace these, with the scope kept. */
@@ -151,14 +194,21 @@ class SearchResultsViewModel @Inject constructor(
         if (s.loading || s.done) return
         _state.update { it.copy(loading = true, error = null) }
         job = viewModelScope.launch {
+            // as few names as say it (ScopeTree.compact): they travel in the request
+            val scope = s.tree.compact(Scope(s.books, s.categories))
             val filter = SearchFilter(
-                lang = s.lang, books = s.books.sorted(), categories = s.categories.sorted(),
+                lang = s.lang, books = scope.books.sorted(), categories = scope.categories.sorted(),
                 allForms = s.allForms, drop = s.drop,
             )
             when (val r = search.page(s.q, filter, s.next)) {
                 is Load.Ok -> _state.update {
+                    // A place the list already has isn't added again: a ranking made anew between
+                    // two pages (the server keeps one for a minute) can repeat one, and the list
+                    // names its rows by place, where a second row of the same name is a crash.
+                    val have = it.hits.mapTo(HashSet()) { h -> hitKey(h) }
+                    val fresh = r.value.hits.filter { h -> have.add(hitKey(h)) }
                     it.copy(
-                        hits = it.hits + r.value.hits, next = r.value.next, done = r.value.next == null,
+                        hits = it.hits + fresh, next = r.value.next, done = r.value.next == null,
                         loading = false, offline = r.value.offline,
                         // a dropped form is no longer in the response: keep showing its chip, off
                         forms = if (s.next == null) mergeForms(r.value.forms, it.forms, it.drop) else it.forms,
@@ -178,13 +228,17 @@ class SearchResultsViewModel @Inject constructor(
         }.filterValues { it.isNotEmpty() }
 }
 
+/** What names a hit in the list: its place. */
+private fun hitKey(h: SearchHitDto) = h.ref + "|" + h.book
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(onOpen: (Any) -> Unit, onBack: () -> Unit, vm: SearchResultsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     val list = rememberLazyListState()
     val nearEnd by remember { derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index?.let { it >= list.layoutInfo.totalItemsCount - 5 } ?: false } }
-    LaunchedEffect(nearEnd, s.hits.size) { if (nearEnd && s.error == null) vm.more() }
+    // the cursor is a key too: a page that added no rows (all of it already listed) still leads to the next
+    LaunchedEffect(nearEnd, s.hits.size, s.next) { if (nearEnd && s.error == null) vm.more() }
     Scaffold(
         topBar = {
             // the field stays, with the query in it: edit it and search again without going back
@@ -211,7 +265,7 @@ fun SearchScreen(onOpen: (Any) -> Unit, onBack: () -> Unit, vm: SearchResultsVie
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            items(s.hits, key = { it.ref + "|" + it.book }) { h ->
+            items(s.hits, key = ::hitKey) { h ->
                 Hit(h, Modifier.clickable { onOpen(ReaderRoute(h.book, h.ref)) })
                 HorizontalDivider()
             }
@@ -231,124 +285,25 @@ fun SearchScreen(onOpen: (Any) -> Unit, onBack: () -> Unit, vm: SearchResultsVie
 @Composable
 private fun Filters(s: SearchResultsState, vm: SearchResultsViewModel) {
     var picking by remember { mutableStateOf(false) }
+    val scope = Scope(s.books, s.categories)
+    val downloaded by vm.downloaded.collectAsStateWithLifecycle()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { FilterChip(selected = true, onClick = { picking = true }, label = { Text(scopeLabel(s)) }) }
-            item { FilterChip(selected = s.lang == "he", onClick = { vm.setLang("he") }, label = { Text(stringResource(R.string.search_lang_he)) }) }
-            item { FilterChip(selected = s.lang == "en", onClick = { vm.setLang("en") }, label = { Text(stringResource(R.string.search_lang_en)) }) }
+            scopeChips(s.tree, scope, downloaded, onPick = { picking = true }, onScope = { vm.setScope(it.books, it.categories) })
+            item(key = "he") { FilterChip(selected = s.lang == "he", onClick = { vm.setLang("he") }, label = { Text(stringResource(R.string.search_lang_he)) }) }
+            item(key = "en") { FilterChip(selected = s.lang == "en", onClick = { vm.setLang("en") }, label = { Text(stringResource(R.string.search_lang_en)) }) }
         }
         if (s.forms.isNotEmpty() || s.allForms) {
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { FilterChip(selected = s.allForms, onClick = { vm.setAllForms(!s.allForms) }, label = { Text(stringResource(R.string.search_all_forms)) }) }
-                for ((_, forms) in s.forms.toSortedMap()) items(forms, key = { "form:$it" }) { f ->
+                // two query words can share a form: the word is in the key so both chips can show
+                for ((word, forms) in s.forms.toSortedMap()) items(forms, key = { "form:$word:$it" }) { f ->
                     FilterChip(selected = f !in s.drop, onClick = { vm.toggleForm(f) }, label = { Text(f) })
                 }
             }
         }
     }
-    val downloaded by vm.downloaded.collectAsStateWithLifecycle()
-    if (picking) ScopeSheet(s, downloaded, onDone = { b, c -> picking = false; vm.setScope(b, c) }, onDismiss = { picking = false })
-}
-
-/** "All of the library", or the scope's first names and how many more. */
-@Composable
-private fun scopeLabel(s: SearchResultsState): String {
-    if (s.books.isEmpty() && s.categories.isEmpty()) return stringResource(R.string.search_scope_all)
-    val names = s.categories.sorted().map { path -> categoryName(s.toc, path) } + s.books.sorted().map { t -> bookName(s.toc, t) }
-    val shown = names.take(2).joinToString(" + ")
-    return if (names.size > 2) shown + " " + stringResource(R.string.search_scope_more, names.size - 2) else shown
-}
-
-@Composable
-private fun categoryName(toc: List<TocNodeDto>, path: String): String {
-    var nodes = toc
-    var name = path.substringAfterLast('/')
-    for (part in path.split('/')) {
-        val n = nodes.firstOrNull { !it.isBook && it.en == part } ?: break
-        name = pick(n.en, n.he)
-        nodes = n.children
-    }
-    return name
-}
-
-@Composable
-private fun bookName(toc: List<TocNodeDto>, title: String): String {
-    fun find(nodes: List<TocNodeDto>): TocNodeDto? {
-        for (n in nodes) (if (n.isBook && n.title == title) n else find(n.children))?.let { return it }
-        return null
-    }
-    return find(toc)?.let { pick(it.title, it.he) } ?: title
-}
-
-/**
- * The scope picker: the TOC as a tree with a box per category and book (a category covers all
- * its books), a title filter, and shortcuts for the whole library and the downloaded books.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ScopeSheet(s: SearchResultsState, downloaded: Set<String>, onDone: (Set<String>, Set<String>) -> Unit, onDismiss: () -> Unit) {
-    var books by remember { mutableStateOf(s.books) }
-    var cats by remember { mutableStateOf(s.categories) }
-    var open by remember { mutableStateOf(setOf<String>()) }
-    var filter by remember { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.search_scope_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = { onDone(books, cats) }) { Text(stringResource(R.string.search_scope_done)) }
-        }
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item { FilterChip(selected = books.isEmpty() && cats.isEmpty(), onClick = { books = emptySet(); cats = emptySet() }, label = { Text(stringResource(R.string.search_scope_clear)) }) }
-            if (downloaded.isNotEmpty()) item {
-                FilterChip(selected = cats.isEmpty() && books == downloaded, onClick = { books = downloaded; cats = emptySet() }, label = { Text(stringResource(R.string.search_scope_downloaded)) })
-            }
-        }
-        OutlinedTextField(
-            value = filter, onValueChange = { filter = it }, singleLine = true,
-            placeholder = { Text(stringResource(R.string.search_scope_filter)) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-        // rows: (depth, node, path) of the visible tree; with a filter, the matching books flat
-        val rows = remember(s.toc, open, filter) {
-            val out = mutableListOf<Triple<Int, TocNodeDto, String>>()
-            val f = filter.trim()
-            fun walk(nodes: List<TocNodeDto>, depth: Int, path: String) {
-                for (n in nodes) {
-                    val p = if (n.isBook) path else if (path.isEmpty()) n.en else "$path/${n.en}"
-                    if (f.isNotEmpty()) {
-                        if (n.isBook && (n.title.contains(f, ignoreCase = true) || n.he.contains(f))) out += Triple(0, n, p)
-                        else if (!n.isBook) walk(n.children, depth, p)
-                    } else {
-                        out += Triple(depth, n, p)
-                        if (!n.isBook && p in open) walk(n.children, depth + 1, p)
-                    }
-                }
-            }
-            walk(s.toc, 0, "")
-            out
-        }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
-            items(rows, key = { (_, n, p) -> if (n.isBook) "b:" + n.title else "c:$p" }) { (depth, n, p) ->
-                val covered = cats.any { c -> !n.isBook && p.startsWith("$c/") || n.isBook && (p == c || p.startsWith("$c/")) }
-                val checked = covered || if (n.isBook) n.title in books else p in cats
-                Row(
-                    Modifier.fillMaxWidth().clickable { if (!n.isBook) open = if (p in open) open - p else open + p }
-                        .padding(start = (8 + 16 * depth).dp, end = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = checked, enabled = !covered, onCheckedChange = { on ->
-                        if (n.isBook) books = if (on) books + n.title else books - n.title
-                        else cats = if (on) cats.filterNot { it.startsWith("$p/") }.toSet() + p else cats - p
-                    })
-                    Text(
-                        if (n.isBook) pick(n.title, n.he) else pick(n.en, n.he),
-                        style = if (n.isBook) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f).padding(vertical = 12.dp),
-                    )
-                    if (!n.isBook && filter.isBlank()) Text(if (p in open) "−" else "+", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
+    if (picking) ScopeSheet(s.tree, scope, downloaded, onDone = { picking = false; vm.setScope(it.books, it.categories) }, onDismiss = { picking = false })
 }
 
 @Composable

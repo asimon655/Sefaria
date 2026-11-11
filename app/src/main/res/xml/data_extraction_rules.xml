@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Back up user data only (bookmarks, history, positions live in sefaria.db with the
-     cache, so the database is excluded until user data moves to its own file). -->
+<!-- What moves with the user: the settings, and user.db (bookmarks, history, reading positions).
+     Not sefaria.db: it says which library files this phone holds, and they don't travel; nor the
+     downloaded library itself (hundreds of MB that the server gives again). -->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="." />
         <include domain="file" path="datastore/" />
+        <include domain="database" path="user.db" />
     </cloud-backup>
     <device-transfer>
-        <include domain="database" path="." />
         <include domain="sharedpref" path="." />
         <include domain="file" path="datastore/" />
+        <include domain="database" path="user.db" />
     </device-transfer>
 </data-extraction-rules>

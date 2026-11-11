@@ -8,8 +8,11 @@ object SearchText {
     /** One search term: a token or a phrase, the last token optionally a prefix. */
     data class Term(val tokens: List<String>, val prefix: Boolean = false)
 
-    /** The shortest prefix searched as one; a shorter word* matches exactly. */
-    private const val MIN_PREFIX = 2
+    /**
+     * The shortest prefix searched as one; a shorter word* matches exactly (two letters expand to
+     * much of the vocabulary). As the server's search.minPrefix.
+     */
+    private const val MIN_PREFIX = 3
 
     private fun final(cp: Int): Int = when (cp) {
         'ך'.code -> 'כ'.code; 'ם'.code -> 'מ'.code; 'ן'.code -> 'נ'.code; 'ף'.code -> 'פ'.code; 'ץ'.code -> 'צ'.code

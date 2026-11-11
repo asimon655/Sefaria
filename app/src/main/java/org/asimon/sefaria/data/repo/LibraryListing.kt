@@ -18,6 +18,7 @@ import org.asimon.sefaria.data.remote.ApiResult
 import org.asimon.sefaria.data.AppError
 import org.asimon.sefaria.data.toAppError
 import org.asimon.sefaria.data.datasource.CachedFetcher
+import org.asimon.sefaria.data.datasource.buildOf
 
 /**
  * The server's listing of library files (/v1/library, SERVER_SPEC §7), stored in the listed_file
@@ -54,16 +55,19 @@ class LibraryListing(
      */
     suspend fun refresh(force: Boolean = false): AppError? = lock.withLock {
         if (fetcher.build == null) fetcher.refreshBuild()
-        val build = fetcher.build
+        // The listing is named by its own checksum (the server's manifest carries it, and it is
+        // the ETag of /v1/library): the library step can run again on a build, and then the
+        // listing changes while the build id doesn't. A server that doesn't say names it by build.
+        val want = fetcher.library?.ifEmpty { null } ?: fetcher.build
         val have = dao.build()
-        if (!force && have != null && (build == null || have == build)) return@withLock null
+        if (!force && have != null && (want == null || have == want)) return@withLock null
         when (val r = api.library(have?.takeIf { !force }?.let { "\"$it\"" })) {
             is ApiResult.Ok -> {
-                dao.putListing(r.value, r.value.buildId.ifEmpty { r.etag?.trim('"') ?: build.orEmpty() })
+                dao.putListing(r.value, buildOf(r.etag) ?: want ?: r.value.buildId)
                 null
             }
             ApiResult.NotModified -> {
-                build?.let { dao.stampBuild(it) }
+                want?.let { dao.stampBuild(it) }
                 null
             }
             is ApiResult.Failure -> r.error.toAppError()

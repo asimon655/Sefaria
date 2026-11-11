@@ -114,8 +114,10 @@ class SharedFiles(
             if (!library.files.hasBooks()) return@launch
             ensureForms()
             for (f in listing.missingIndexes()) {
-                // a server without index files answers 404 for each: stop at the first
-                if (fetchIndex(f) is AppError.NotFound) break
+                // One failure ends the pass: a server without index files answers 404 for each,
+                // and with no network, no room or a busy server the rest would fail alike. The
+                // next sync takes it up again.
+                if (fetchIndex(f) != null) break
             }
         }
     }

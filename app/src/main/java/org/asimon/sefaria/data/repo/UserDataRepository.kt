@@ -32,6 +32,11 @@ class UserDataRepository(private val dao: UserDao, private val now: () -> Long =
         dao.putHistory(HistoryEntry(id, ref.book.title, ref.url(), ref.human(), ref.hebrew(), t, trail))
     }
 
+    suspend fun removeBookmark(b: Bookmark) = dao.removeBookmark(b.ref)
+
+    /** Puts back a bookmark just removed, as it was. */
+    suspend fun restoreBookmark(b: Bookmark) = dao.addBookmark(b)
+
     suspend fun lastPosition(book: String): ReadingPosition? = dao.position(book)
     suspend fun clearHistory() = dao.clearHistory()
 

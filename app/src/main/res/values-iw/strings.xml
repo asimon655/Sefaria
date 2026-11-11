@@ -61,7 +61,6 @@
     <string name="search_lang_en">אנגלית</string>
     <string name="search_scope_all">כל הספרייה</string>
     <string name="search_scope_title">חיפוש ב</string>
-    <string name="search_scope_more">+ עוד %1$d</string>
     <string name="search_scope_downloaded">ספרים שהורדו</string>
     <string name="search_scope_clear">כל הספרייה</string>
     <string name="search_scope_filter">סינון לפי שם</string>
@@ -190,4 +189,52 @@
     <string name="pause_download">השהיית ההורדה</string>
     <string name="resume_download">המשך ההורדה</string>
     <string name="resume_download_size">המשך ההורדה · %1$s מתוך %2$s</string>
+    <string name="search_scope_remove">הסרת %1$s</string>
+    <string name="search_scope_downloaded_n">ספרים שהורדו (%1$d)</string>
+    <string name="search_scope_no_match">אין קטגוריה או ספר שמתאימים ל„%1$s”</string>
+    <string name="expand">הרחבה</string>
+    <string name="collapse">כיווץ</string>
+    <string-array name="aliyah_names">
+        <item>ראשון</item><item>שני</item><item>שלישי</item><item>רביעי</item><item>חמישי</item><item>שישי</item><item>שביעי</item>
+    </string-array>
+    <string name="error_rejected">השרת דחה את הבקשה: %1$s</string>
+    <string name="error_rejected_plain">השרת דחה את הבקשה</string>
+    <string name="error_busy_title">השרת עמוס</string>
+    <string name="error_busy">יותר מדי בקשות כרגע. נסו שוב בעוד רגע.</string>
+    <string name="error_search_timeout_title">החיפוש ארך זמן רב מדי</string>
+    <string name="error_search_timeout">נסו מילים נוספות, ביטוי במירכאות, או פחות ספרים.</string>
+    <string name="error_storage_title">אין מספיק מקום</string>
+    <string name="error_storage">נדרשים %1$s; בטלפון פנויים %2$s.</string>
+    <string name="download_no_room">אין מספיק מקום בטלפון: %1$s פנויים.</string>
+    <string name="retry_failed_downloads">ניסיון חוזר ל־%1$d הורדות שנכשלו</string>
+    <string name="notification_pause">השהיה</string>
+    <string name="clear_history_title">לנקות את ההיסטוריה?</string>
+    <string name="clear_history_body">כל %1$d הביקורים יימחקו. הסימניות ומקומות הקריאה נשארים.</string>
+    <string name="bookmark_removed">הסימנייה הוסרה</string>
+    <string name="undo">ביטול</string>
+    <string name="a11y_open_connections">הצגת קישורים</string>
+    <string name="a11y_select_verse">בחירה</string>
+    <plurals name="a11y_connections">
+        <item quantity="one">קישור אחד</item>
+        <item quantity="two">%1$d קישורים</item>
+        <item quantity="many">%1$d קישורים</item>
+        <item quantity="other">%1$d קישורים</item>
+    </plurals>
+    <!-- the search tab: the scope chosen before searching, and things to try -->
+    <string name="search_in_one">ב%1$s</string>
+    <string name="search_in_more">ב%1$s ועוד %2$d</string>
+    <string name="search_examples_open_title">פתיחת ספר או מקום בתוכו</string>
+    <string name="search_examples_words_title">חיפוש בטקסטים</string>
+    <string-array name="search_examples_open">
+        <item>בראשית א א</item>
+        <item>ברכות ב.</item>
+        <item>משנה תורה</item>
+        <item>מנחה</item>
+        <item>בראשית ראשון</item>
+    </string-array>
+    <string-array name="search_examples_words">
+        <item>ואהבת לרעך כמוך</item>
+        <item>\"עץ חיים\"</item>
+        <item>תיקון עולם</item>
+    </string-array>
 </resources>

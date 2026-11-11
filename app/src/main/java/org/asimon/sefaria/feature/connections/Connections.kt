@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.asimon.sefaria.R
@@ -127,14 +128,23 @@ class ConnectionsViewModel @Inject constructor(
     val state = _state.asStateFlow()
     val pinned = settings.prefs.map { it.pinned }.stateIn(viewModelScope, SharingStarted.Eagerly, settings.prefs.value.pinned)
 
+    // The requests of the verse on screen: the connections, and each open book's texts. A new
+    // verse cancels them (on the wire too): scrolling through ten verses used to leave thirty
+    // requests running for answers nobody would see, and counting against the server's rate limit.
+    private var loading: Job? = null
+    private val textJobs = ArrayList<Job>()
+
     fun load(ref: String, book: String) {
         if (_state.value.ref == ref && _state.value.error == null) return
+        loading?.cancel()
+        textJobs.forEach { it.cancel() }
+        textJobs.clear()
         val keep = _state.value
         // keep the old groups on screen until the new ones arrive, so following the reading doesn't flash
         _state.value = ConnectionsState(
             ref = ref, book = book, loading = true, filter = keep.filter, focus = keep.focus, focusBook = keep.focusBook, groups = keep.groups,
         )
-        viewModelScope.launch {
+        loading = viewModelScope.launch {
             val r = repo.links(ref, book)
             if (_state.value.ref != ref) return@launch
             _state.update {
@@ -176,7 +186,7 @@ class ConnectionsViewModel @Inject constructor(
         val source = _state.value.book ?: return
         if (book in _state.value.texts) return
         _state.update { it.copy(texts = it.texts + (book to BookTexts())) }
-        viewModelScope.launch {
+        textJobs += viewModelScope.launch {
             val p = settings.prefs.value
             val texts = when (val r = repo.withText(ref, source, book)) {
                 is Load.Ok -> BookTexts(loading = false, links = withContext(Dispatchers.Default) {
@@ -192,7 +202,7 @@ class ConnectionsViewModel @Inject constructor(
                     }
                 })
                 // offline: list the refs (from the connections without text) so they can still be opened
-                is Load.Err -> if (r.error == AppError.Network) BookTexts(loading = false, offline = true, links = refsOnly(book))
+                is Load.Err -> if (r.error.transient) BookTexts(loading = false, offline = true, links = refsOnly(book))
                     else BookTexts(loading = false, error = r.error)
             }
             if (_state.value.ref == ref) _state.update { it.copy(texts = it.texts + (book to texts)) }

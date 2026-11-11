@@ -1,5 +1,7 @@
 package org.asimon.sefaria.data.repo
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +25,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import org.asimon.sefaria.core.debugAssert
+import org.asimon.sefaria.core.debugOnly
 import org.asimon.sefaria.data.local.FileKind
 import org.asimon.sefaria.data.local.InstalledBook
 import org.asimon.sefaria.data.local.Library
@@ -172,17 +176,40 @@ class DownloadRepository(
     /** Runs a queued download (its state already set to [DownloadState.Queued]). */
     private fun start(book: String) {
         jobs[book] = scope.launch {
-            var err = fetch(book)
-            if (err is AppError.BadResponse || err is AppError.NotFound) {
-                // the listing may be stale (stored before the server's build changed): refetch it once
-                if (listing.refresh(force = true) == null) err = fetch(book)
+            // Whatever goes wrong in here (a full disk under the database, a bug) ends as this
+            // book's failure: left to escape, it would leave the book "queued" for good, and the
+            // worker waiting for a queue that never empties.
+            val err = try {
+                var e = fetch(book)
+                if (e is AppError.BadResponse || e is AppError.NotFound) {
+                    // the listing may be stale (stored before the server's build changed): refetch it once
+                    if (listing.refresh(force = true) == null) e = fetch(book)
+                }
+                e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AssertionError) {
+                throw e // a failed debug assertion is a bug to see, not a download to retry
+            } catch (e: Exception) {
+                Log.w("Downloads", "download of $book failed", e)
+                AppError.BadResponse(e.message ?: e.javaClass.simpleName)
             }
             _downloads.update { if (err == null) it.remove(book) else it.put(book, DownloadState.Failed(err)) }
-            // a network failure stays pending: the worker tries again when the network is back
-            if (err != AppError.Network) pending.update { it.remove(book) }
-            jobs.remove(book)
+            // What may work later (no network, a busy or failing server) stays pending: the worker
+            // tries again. The rest would fail the same way every time.
+            if (err == null || !err.transient) pending.update { it.remove(book) }
+            jobs.remove(book, coroutineContext[Job])
         }
     }
+
+    /** Queues again every download that failed (what [DownloadState.Failed] shows). */
+    suspend fun retryFailed() {
+        val failed = _downloads.value.filterValues { it is DownloadState.Failed }.keys
+        if (failed.isNotEmpty()) downloadAll(failed)
+    }
+
+    /** Room left for downloads, in bytes. */
+    suspend fun freeBytes(): Long = withContext(Dispatchers.IO) { library.files.dir.also { it.mkdirs() }.usableSpace }
 
     /** Queues every book of [books] that the server has and that isn't downloaded and current. */
     suspend fun downloadAll(books: Collection<String>) {
@@ -225,7 +252,13 @@ class DownloadRepository(
             is Fetched.Files -> r
         }
         _downloads.update { if (book in it) it.put(book, DownloadState.Verifying) else it }
-        return verifySlots.withPermit { verifyStage(book, files) }
+        return verifySlots.withPermit { verifyStage(book, files) }.also { err ->
+            debugOnly {
+                if (err == null) debugAssert(library.files.row(FileKind.BOOK, book)?.file == files.book.file) {
+                    "$book: installed without error, but its row doesn't name ${files.book.file}"
+                }
+            }
+        }
     }
 
     /** The download stage: the dictionary if missing, then the book file and its index file, unchecked. */

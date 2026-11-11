@@ -17,12 +17,23 @@ package org.asimon.sefaria.core.text
  * Ties keep the input's order (the TOC's), so Genesis comes before Genesis Rabbah.
  */
 object TitleMatch {
+    /** A name folded for comparison, with its words: made once for names that are matched again and again. */
+    class Name(val text: String) {
+        val words: List<String> = text.split(' ')
+    }
+
+    /** [names] of an item, folded; the empty ones dropped. */
+    fun fold(names: List<String>): List<Name> = names.map(::fold).filter { it.isNotEmpty() }.map(::Name)
+
     /** The best of [items] for [query], at most [limit]; [names] gives each item's names. */
-    fun <T> rank(query: String, items: List<T>, limit: Int, names: (T) -> List<String>): List<T> {
+    fun <T> rank(query: String, items: List<T>, limit: Int, names: (T) -> List<String>): List<T> =
+        rank(query, items, items.map { fold(names(it)) }, limit)
+
+    /** As [rank], with each item's names already folded ([fold]): what typing a query letter by letter wants. */
+    fun <T> rank(query: String, items: List<T>, folded: List<List<Name>>, limit: Int): List<T> {
         val q = fold(query)
         if (q.isEmpty() || limit <= 0) return emptyList()
         val words = q.split(' ')
-        val folded = items.map { item -> names(item).map(::fold).filter { it.isNotEmpty() } }
         val scored = ArrayList<Triple<Int, Int, T>>() // (score, input position, item)
         val missed = ArrayList<Int>()
         for ((i, item) in items.withIndex()) {
@@ -44,13 +55,16 @@ object TitleMatch {
     private const val TIER = 1000
 
     // tiers 0-4: a lower score is better; null if none applies
-    private fun exact(q: String, words: List<String>, name: String): Int? = when {
-        name == q -> 0
-        name.startsWith(q) -> TIER + name.length
-        name.contains(" $q") -> 2 * TIER + name.length
-        prefixesOf(words, name.split(' ')) -> 3 * TIER + name.length
-        q.length >= 3 && name.contains(q) -> 4 * TIER + name.length
-        else -> null
+    private fun exact(q: String, words: List<String>, n: Name): Int? {
+        val name = n.text
+        return when {
+            name == q -> 0
+            name.startsWith(q) -> TIER + name.length
+            name.contains(" $q") -> 2 * TIER + name.length
+            prefixesOf(words, n.words) -> 3 * TIER + name.length
+            q.length >= 3 && name.contains(q) -> 4 * TIER + name.length
+            else -> null
+        }
     }
 
     // Each query word starts a different word of the name.
@@ -64,8 +78,9 @@ object TitleMatch {
     }
 
     // tier 5: the sum of each query word's edits to the closest start of a name word
-    private fun fuzzy(words: List<String>, name: String): Int? {
-        val nameWords = name.split(' ')
+    private fun fuzzy(words: List<String>, n: Name): Int? {
+        val name = n.text
+        val nameWords = n.words
         var total = 0
         for (w in words) {
             val allowed = when {

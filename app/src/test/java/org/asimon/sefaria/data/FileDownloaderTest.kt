@@ -1,5 +1,6 @@
 package org.asimon.sefaria.data
 
+import org.junit.Assert.assertTrue
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -94,5 +95,37 @@ class FileDownloaderTest {
         assertEquals(AppError.NotFound("Genesis"), dl.download(path, file, part))
         server.close()
         assertEquals(AppError.Network, dl.download(path, file, part))
+    }
+
+    @Test
+    fun errorsSayWhetherToTryAgain() = runTest {
+        val part = tmp.root.resolve("g.part")
+        server.enqueue(MockResponse.Builder().code(429).addHeader("Retry-After", "7").build())
+        assertEquals(AppError.Busy(7), dl.fetch(path, file, part))
+        server.enqueue(MockResponse.Builder().code(503).build())
+        assertTrue(dl.fetch(path, file, part)!!.transient) // the download stays queued
+        server.enqueue(MockResponse.Builder().code(404).build())
+        assertFalse(dl.fetch(path, file, part)!!.transient)
+    }
+
+    @Test
+    fun noRoomIsSaidBeforeDownloading() = runTest {
+        val huge = file.copy(bytes = Long.MAX_VALUE / 4)
+        val e = dl.fetch(path, huge, tmp.root.resolve("g.part"))
+        assertTrue("$e", e is AppError.Storage && e.needed == huge.bytes && e.free < huge.bytes)
+        assertEquals(0, server.requestCount) // not a byte asked for
+    }
+
+    @Test
+    fun aFileDownloadedWholeIsNotReadAgainToVerify() = runTest {
+        server.enqueue(body(data))
+        val part = tmp.root.resolve("g.part")
+        assertNull(dl.fetch(path, file, part))
+        // Its checksum was taken as it arrived. (Shown by changing the file behind the
+        // downloader's back: a verify that read it would refuse it.)
+        part.writeBytes(data.copyOf().also { it[5] = 0x55 })
+        assertNull(dl.verify(file, part))
+        // the remembered checksum is used once: the next verify reads the file
+        assertEquals(AppError.BadResponse("checksum mismatch for Genesis"), dl.verify(file, part))
     }
 }

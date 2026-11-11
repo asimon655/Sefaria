@@ -1,5 +1,7 @@
 package org.asimon.sefaria.core.ref
 
+import org.asimon.sefaria.core.debugAssert
+
 /*
  * Section navigation computed from the book schema alone, so the reader can page
  * offline. A section is the level directly above segments; empty sections have no
@@ -32,6 +34,7 @@ fun Ref.segment(number: Int): Ref =
  * Mirrors the server's ref.FromSlots.
  */
 fun Book.fromSlots(start: Int, end: Int): Ref {
+    debugAssert(start < end && end <= slots) { "slots [$start, $end) of $title, which has $slots" }
     val s = Ref.at(this, start)
     if (end - start <= 1) return s
     val sec = s.section()

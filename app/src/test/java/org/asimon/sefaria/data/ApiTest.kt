@@ -1,5 +1,12 @@
 package org.asimon.sefaria.data
 
+import org.asimon.sefaria.data.toAppError
+import org.asimon.sefaria.data.AppError
+import org.junit.Assert.assertFalse
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
@@ -76,5 +83,53 @@ class ApiTest {
         assertTrue((api.manifest() as ApiResult.Failure).error is ApiError.BadResponse)
         server.close()
         assertTrue((api.manifest() as ApiResult.Failure).error is ApiError.Network)
+    }
+
+    @Test
+    fun retryAfterIsWaitedOutOnce() = runTest {
+        // a busy server says when to come back: a short wait is taken, once
+        server.enqueue(MockResponse.Builder().code(429).addHeader("Retry-After", "0").body("""{"error":{"code":"rate_limited","message":"too many requests"}}""").build())
+        server.enqueue(json("""{"build_id":"b1","library":"abc"}"""))
+        val ok = api.manifest() as ApiResult.Ok
+        assertEquals("b1", ok.value.buildId)
+        assertEquals("abc", ok.value.library)
+        assertEquals(2, server.requestCount)
+        // twice busy: the error, with its Retry-After, for the caller to decide
+        // (Retry-After: 1, not 0: OkHttp itself retries a 503 that says 0)
+        repeat(2) { server.enqueue(MockResponse.Builder().code(503).addHeader("Retry-After", "1").body("""{"error":{"code":"search_busy","message":"busy"}}""").build()) }
+        val e = (api.search("x") as ApiResult.Failure).error
+        assertEquals(ApiError.Http(503, "search_busy", "busy", retryAfter = 1), e)
+        assertEquals(AppError.Busy(1), e.toAppError())
+        assertEquals(4, server.requestCount)
+        // a long Retry-After is not waited out here
+        server.enqueue(MockResponse.Builder().code(429).addHeader("Retry-After", "60").body("{}").build())
+        assertEquals(AppError.Busy(60), (api.manifest() as ApiResult.Failure).error.toAppError())
+        assertEquals(5, server.requestCount)
+    }
+
+    @Test
+    fun cancellingTheCoroutineCancelsTheCall() = runBlocking {
+        // the server never answers: only the cancel ends the call
+        server.enqueue(MockResponse.Builder().headersDelay(30, TimeUnit.SECONDS).body("{}").build())
+        val started = System.nanoTime()
+        val job = launch(Dispatchers.Default) { api.manifest() }
+        server.takeRequest() // the request is on the wire
+        job.cancelAndJoin()
+        assertTrue(job.isCancelled)
+        assertTrue("cancel took ${(System.nanoTime() - started) / 1_000_000} ms", System.nanoTime() - started < 5_000_000_000)
+    }
+
+    @Test
+    fun errorsSayWhatHappensNext() {
+        fun http(status: Int, code: String) = ApiError.Http(status, code, "m").toAppError()
+        assertEquals(AppError.NotFound("m"), http(404, "ref_not_found"))
+        assertEquals(AppError.NotFound("m"), http(400, "bad_ref"))
+        assertEquals(AppError.Rejected("m"), http(400, "bad_param"))
+        assertEquals(AppError.Busy(1), http(429, "rate_limited"))
+        assertEquals(AppError.SearchTimeout, http(503, "search_failed"))
+        assertEquals(AppError.Server(500, "m"), http(500, "internal"))
+        // transient: waiting may cure it, so a cached or downloaded copy answers and a download stays queued
+        for (e in listOf(AppError.Network, AppError.Busy(1), AppError.SearchTimeout, AppError.Server(503, ""))) assertTrue("$e", e.transient)
+        for (e in listOf(AppError.NotFound(""), AppError.Rejected(""), AppError.BadResponse(""), AppError.Storage(1, 0), AppError.NoText)) assertFalse("$e", e.transient)
     }
 }

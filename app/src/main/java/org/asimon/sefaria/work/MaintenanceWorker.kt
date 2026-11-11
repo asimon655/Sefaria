@@ -12,11 +12,15 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import org.asimon.sefaria.data.local.CacheDb
 import org.asimon.sefaria.data.local.LibraryFiles
+import org.asimon.sefaria.data.local.UserDb
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
  * Daily housekeeping while the phone is idle: trims the response cache to [CACHE_BYTES] (least
- * recently used first) and tidies the downloaded library (LibraryFiles.tidy).
+ * recently used first), tidies the downloaded library (LibraryFiles.tidy) and keeps the history
+ * to its latest [UserDb.HISTORY_KEEP] visits.
  */
 @HiltWorker
 class MaintenanceWorker @AssistedInject constructor(
@@ -24,11 +28,28 @@ class MaintenanceWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val cache: CacheDb,
     private val library: LibraryFiles,
+    private val user: UserDb,
 ) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
-        cache.cache().trim(CACHE_BYTES)
-        library.tidy()
-        return Result.success()
+        // each on its own: the cache database can be gone (the system empties the cache folder),
+        // and that mustn't keep the library or the history from being tidied
+        val steps = listOf<suspend () -> Unit>(
+            { cache.cache().trim(CACHE_BYTES) },
+            { library.tidy() },
+            { user.user().pruneHistory(UserDb.HISTORY_KEEP) },
+        )
+        var failed = false
+        for (step in steps) {
+            try {
+                step()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("Maintenance", "a step failed", e)
+                failed = true
+            }
+        }
+        return if (failed) Result.failure() else Result.success()
     }
 
     companion object {

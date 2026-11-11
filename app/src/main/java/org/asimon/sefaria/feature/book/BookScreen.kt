@@ -46,6 +46,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.res.stringArrayResource
+import org.asimon.sefaria.core.ref.Catalog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -175,7 +179,11 @@ fun BookScreen(
             book == null -> Loading(Modifier.padding(padding))
             else -> {
                 var tab by rememberSaveable { mutableIntStateOf(0) }
-                val alt = book.dto.altStructs.entries.firstOrNull()
+                // every alternate structure gets a tab, after the contents
+                val alts = remember(book) { book.dto.altStructs.entries.toList() }
+                val alt = alts.getOrNull(tab - 1)
+                var altOpen by rememberSaveable { mutableStateOf(setOf<String>()) }
+                val catalog = remember(book) { Catalog(listOf(book)) }
                 val open = { ref: String -> onOpen(ReaderRoute(book.title, ref)) }
                 LazyColumn(contentPadding = padding) {
                     item { Header(book) }
@@ -191,14 +199,22 @@ fun BookScreen(
                         }
                     }
                     item { BookDownload(book.title, book.he, dvm) }
-                    if (alt != null) item {
-                        PrimaryTabRow(selectedTabIndex = tab) {
+                    if (alts.isNotEmpty()) item {
+                        val tabs = @Composable {
                             Tab(tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.contents)) })
-                            Tab(tab == 1, onClick = { tab = 1 }, text = { Text(altTitle(alt.key)) })
+                            alts.forEachIndexed { i, a -> Tab(tab == i + 1, onClick = { tab = i + 1 }, text = { Text(altTitle(a.key)) }) }
                         }
+                        if (alts.size == 1) PrimaryTabRow(selectedTabIndex = tab) { tabs() }
+                        else PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) { tabs() }
                     }
-                    if (alt != null && tab == 1) {
-                        altNodes(alt.value, open)
+                    if (alt != null) {
+                        val rows = altRows(alt.key, alt.value, altOpen)
+                        items(rows, key = { it.key }) { r ->
+                            AltRow(r, catalog, book, expanded = r.key in altOpen, open = open) {
+                                altOpen = if (r.key in altOpen) altOpen - r.key else altOpen + r.key
+                            }
+                            HorizontalDivider()
+                        }
                     } else {
                         item { Structure(book, book.root, hebrewUi(), open, top = true) }
                     }
@@ -319,19 +335,86 @@ private fun Structure(book: Book, node: Node, hebrew: Boolean, open: (String) ->
     }
 }
 
-private fun LazyListScope.altNodes(nodes: List<AltNodeDto>, open: (String) -> Unit) {
-    items(nodes) { n ->
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = n.ref.isNotEmpty()) { open(n.ref) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Text(pick(n.en, n.he), Modifier.weight(1f))
-            val second = other(n.en, n.he)
-            if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Rtl))
+/**
+ * A row of an alternate structure: a node ([aliyah] null) or one of a parasha's aliyot. A node
+ * opens its [ref] if it has one; one with children (or aliyot) also expands, with its own button
+ * when the row's tap opens it.
+ */
+private data class AltRowData(val key: String, val depth: Int, val node: AltNodeDto, val aliyah: Int?, val expandable: Boolean) {
+    val ref get() = if (aliyah != null) node.refs[aliyah] else node.ref
+}
+
+/** A parasha's refs are its seven aliyot; other structures' refs have no names to show. */
+private const val ALIYOT = 7
+
+/** The open part of an alternate structure, as rows: each node, then what's under it when open. */
+private fun altRows(structKey: String, nodes: List<AltNodeDto>, open: Set<String>): List<AltRowData> {
+    val out = ArrayList<AltRowData>()
+    val parasha = structKey == "Parasha"
+    fun walk(ns: List<AltNodeDto>, depth: Int, prefix: String) {
+        ns.forEachIndexed { i, n ->
+            val key = "$prefix/$i"
+            val aliyot = parasha && n.children.isEmpty() && n.refs.size == ALIYOT
+            out += AltRowData(key, depth, n, null, n.children.isNotEmpty() || aliyot)
+            if (key !in open) return@forEachIndexed
+            if (aliyot) for (j in 0 until ALIYOT) out += AltRowData("$key/a$j", depth + 1, n, j, false)
+            walk(n.children, depth + 1, key)
         }
-        HorizontalDivider()
+    }
+    walk(nodes, 0, structKey)
+    return out
+}
+
+/** A ref without its book's name ("1:1-2:3"), for rows that have no name of their own. */
+private fun inBook(catalog: Catalog, book: Book, url: String, hebrew: Boolean): String {
+    val r = Ref.parseOrNull(catalog, url) ?: return ""
+    val (full, name) = if (hebrew) r.hebrew() to book.he else r.human() to book.title
+    return full.removePrefix(name).trimStart(' ', ',')
+}
+
+@Composable
+private fun AltRow(r: AltRowData, catalog: Catalog, book: Book, expanded: Boolean, open: (String) -> Unit, onExpand: () -> Unit) {
+    val hebrew = hebrewUi()
+    val n = r.node
+    val names = stringArrayResource(R.array.aliyah_names)
+    val heNames = remember { listOf("ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שביעי") }
+    val range = remember(r.ref, hebrew) { if (r.ref.isEmpty()) "" else inBook(catalog, book, r.ref, hebrew) }
+    val title = when {
+        r.aliyah != null -> names[r.aliyah]
+        else -> pick(n.en, n.he).ifEmpty { range }
+    }
+    val second = when {
+        r.aliyah != null -> if (hebrew) "" else heNames[r.aliyah]
+        else -> other(n.en, n.he)
+    }
+    val canOpen = r.ref.isNotEmpty()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = canOpen || r.expandable) { if (canOpen) open(r.ref) else onExpand() }
+            .padding(start = (16 + 20 * r.depth).dp, end = if (r.expandable) 4.dp else 16.dp, top = 4.dp, bottom = 4.dp)
+            .heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f), style = if (r.expandable) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyLarge)
+                if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Rtl))
+            }
+            // the verses an aliyah covers; the range of a named node is in the reader
+            if (r.aliyah != null && range.isNotEmpty()) Text(
+                range,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (r.expandable) {
+            val icon = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore
+            val desc = stringResource(if (expanded) R.string.collapse else R.string.expand)
+            // the row opens the node, so expanding needs its own button
+            if (canOpen) IconButton(onClick = onExpand) { Icon(icon, contentDescription = desc) }
+            else Icon(icon, contentDescription = desc, Modifier.padding(12.dp).size(24.dp))
+        }
     }
 }
 

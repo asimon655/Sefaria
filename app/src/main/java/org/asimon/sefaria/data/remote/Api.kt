@@ -2,12 +2,18 @@ package org.asimon.sefaria.data.remote
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Request
+import okhttp3.Response
 import java.io.File
 import java.io.IOException
 
@@ -20,8 +26,8 @@ sealed interface ApiResult<out T> {
 }
 
 sealed interface ApiError {
-    /** A server error body (SERVER_SPEC §6.1), e.g. code = "ref_not_found". */
-    data class Http(val status: Int, val code: String, val message: String) : ApiError
+    /** A server error body (SERVER_SPEC §6.1), e.g. code = "ref_not_found"; [retryAfter] is its Retry-After, in seconds. */
+    data class Http(val status: Int, val code: String, val message: String, val retryAfter: Int? = null) : ApiError
     data class Network(val cause: IOException) : ApiError
     data class BadResponse(val message: String) : ApiError
 }
@@ -42,17 +48,18 @@ class Api(
         val url = url("/v1/toc.sqlite", emptyList()) ?: return@withContext ApiResult.Failure(ApiError.BadResponse("bad server URL"))
         val request = Request.Builder().url(url).apply { if (etag != null) header("If-None-Match", etag) }.build()
         try {
-            client.newCall(request).execute().use { resp ->
+            client.newCall(request).await { resp ->
                 when {
                     resp.code == 304 -> ApiResult.NotModified
                     resp.isSuccessful -> {
                         dest.outputStream().use { resp.body.byteStream().copyTo(it) }
                         ApiResult.Ok(dest, "", resp.header("ETag"))
                     }
-                    else -> ApiResult.Failure(httpError(resp.code, resp.body.string()))
+                    else -> ApiResult.Failure(httpError(resp, resp.body.string()))
                 }
             }
         } catch (e: IOException) {
+            dest.delete() // half a file is no file
             ApiResult.Failure(ApiError.Network(e))
         }
     }
@@ -118,22 +125,32 @@ class Api(
         val request = Request.Builder().url(url).apply {
             if (etag != null) header("If-None-Match", etag)
         }.build()
-        try {
-            client.newCall(request).execute().use { resp ->
-                val body = resp.body.string()
-                when {
-                    resp.code == 304 -> ApiResult.NotModified
-                    resp.isSuccessful -> ApiResult.Ok(SefariaJson.decodeFromString(serializer, body), body, resp.header("ETag"))
-                    else -> ApiResult.Failure(httpError(resp.code, body))
-                }
-            }
-        } catch (e: IOException) {
-            ApiResult.Failure(ApiError.Network(e))
-        } catch (e: SerializationException) {
-            ApiResult.Failure(ApiError.BadResponse(e.message ?: "invalid JSON"))
-        } catch (e: IllegalArgumentException) { // kotlinx.serialization reports some decode errors this way
-            ApiResult.Failure(ApiError.BadResponse(e.message ?: "invalid JSON"))
+        var r = once(request, serializer)
+        // A busy server says when to come back (Retry-After): a short wait is taken here, once,
+        // so a burst of requests (connections while scrolling) settles without an error on screen.
+        val wait = ((r as? ApiResult.Failure)?.error as? ApiError.Http)?.takeIf { it.status == 429 || it.code == "search_busy" }?.retryAfter
+        if (wait != null && wait <= MAX_RETRY_AFTER) {
+            delay(wait * 1000L)
+            r = once(request, serializer)
         }
+        r
+    }
+
+    private suspend fun <T> once(request: Request, serializer: KSerializer<T>): ApiResult<T> = try {
+        client.newCall(request).await { resp ->
+            val body = resp.body.string()
+            when {
+                resp.code == 304 -> ApiResult.NotModified
+                resp.isSuccessful -> ApiResult.Ok(SefariaJson.decodeFromString(serializer, body), body, resp.header("ETag"))
+                else -> ApiResult.Failure(httpError(resp, body))
+            }
+        }
+    } catch (e: IOException) {
+        ApiResult.Failure(ApiError.Network(e))
+    } catch (e: SerializationException) {
+        ApiResult.Failure(ApiError.BadResponse(e.message ?: "invalid JSON"))
+    } catch (e: IllegalArgumentException) { // kotlinx.serialization reports some decode errors this way
+        ApiResult.Failure(ApiError.BadResponse(e.message ?: "invalid JSON"))
     }
 
     private suspend fun url(path: String, params: List<Pair<String, String>>) =
@@ -141,18 +158,58 @@ class Api(
             params.forEach { (k, v) -> addQueryParameter(k, v) }
         }?.build()
 
-    private fun httpError(status: Int, body: String): ApiError.Http = try {
-        val e = SefariaJson.decodeFromString(ErrorDto.serializer(), body).error
-        ApiError.Http(status, e.code, e.message)
-    } catch (_: Exception) {
-        ApiError.Http(status, "", "HTTP $status")
+    private fun httpError(resp: Response, body: String): ApiError.Http {
+        val retryAfter = resp.header("Retry-After")?.toIntOrNull()?.takeIf { it >= 0 }
+        return try {
+            val e = SefariaJson.decodeFromString(ErrorDto.serializer(), body).error
+            ApiError.Http(resp.code, e.code, e.message, retryAfter)
+        } catch (_: Exception) {
+            ApiError.Http(resp.code, "", "HTTP ${resp.code}", retryAfter)
+        }
+    }
+
+    private companion object {
+        /** The longest Retry-After, in seconds, that a request waits out itself before failing. */
+        const val MAX_RETRY_AFTER = 2
     }
 
     /** A ref or title as one path segment; okhttp escapes it when the URL is parsed. */
     private fun segment(s: String) = s.replace(' ', '_').replace("/", "%2F").replace("?", "%3F").replace("#", "%23")
 }
 
-/** Full-text search filters; null means any. [category] is a path of English names joined by "/". */
+/**
+ * Runs the call and gives its response to [read] (on OkHttp's thread; the response is closed
+ * after). Cancelling the coroutine cancels the call: a search the user typed past, or the
+ * connections of a verse scrolled past, stops on the wire and on the server instead of running
+ * to its end for nothing (and counting against the rate limit).
+ *
+ * It returns, cancelled or not, only once [read] has ended: a caller that hands [read] a file to
+ * write (FileDownloader) can open that file again the moment this returns.
+ */
+suspend fun <T> Call.await(read: (Response) -> T): T {
+    val result = CompletableDeferred<T>()
+    enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            result.completeExceptionally(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            try {
+                result.complete(response.use(read))
+            } catch (e: Throwable) {
+                result.completeExceptionally(e)
+            }
+        }
+    })
+    try {
+        return result.await()
+    } catch (e: CancellationException) {
+        cancel() // the read fails at once, and the callback ends
+        withContext(NonCancellable) { result.join() }
+        throw e
+    }
+}
+
 /**
  * What a search covers and how it matches (SERVER_SPEC §6.6). The scope is the union of
  * [books] and [categories] ("Tanakh/Torah"); both empty means the whole library. [expand]

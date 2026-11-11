@@ -1,0 +1,4 @@
+<resources>
+    <!-- The window before the first frame, when the system is dark: no white flash on the way in. -->
+    <style name="Theme.Sefaria" parent="android:Theme.Material.NoActionBar" />
+</resources>
