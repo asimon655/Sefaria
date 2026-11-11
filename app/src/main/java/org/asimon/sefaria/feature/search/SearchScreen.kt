@@ -85,6 +85,7 @@ import kotlinx.coroutines.launch
 import org.asimon.sefaria.R
 import org.asimon.sefaria.ReaderRoute
 import org.asimon.sefaria.SearchRoute
+import org.asimon.sefaria.core.text.SearchMarks
 import org.asimon.sefaria.core.text.SearchText
 import org.asimon.sefaria.data.remote.SearchFilter
 import org.asimon.sefaria.data.remote.SearchHitDto
@@ -266,7 +267,7 @@ fun SearchScreen(onOpen: (Any) -> Unit, onBack: () -> Unit, vm: SearchResultsVie
                 )
             }
             items(s.hits, key = ::hitKey) { h ->
-                Hit(h, Modifier.clickable { onOpen(ReaderRoute(h.book, h.ref)) })
+                Hit(h, Modifier.clickable { onOpen(ReaderRoute(h.book, h.ref, words = SearchMarks.words(h.snippet, s.q))) })
                 HorizontalDivider()
             }
             item(key = "status") {

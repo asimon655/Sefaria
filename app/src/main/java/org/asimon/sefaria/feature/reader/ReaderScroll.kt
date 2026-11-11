@@ -1,8 +1,14 @@
 package org.asimon.sefaria.feature.reader
 
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.text.TextLayoutResult
+import org.asimon.sefaria.core.debugAssert
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
@@ -50,6 +56,29 @@ class ReaderScroll(
 
     /** Each paragraph row's text layout, by row key, as the paragraphs report them. */
     val paragraphLayouts = mutableMapOf<String, ParagraphLayout>()
+
+    /** Where the first marked word of a search result's segment is drawn, by segment key (rememberMarkSpot). */
+    val marks = mutableMapOf<String, MarkSpot>()
+
+    /** The list on screen, for where a marked word is in it. */
+    var viewport: LayoutCoordinates? = null
+
+    /**
+     * A long segment opens at its top: if its first marked word is below the upper part of the
+     * list, scrolls (at once: no animation on e-ink) to show it a third of the way down.
+     */
+    suspend fun revealMark(key: String) {
+        val spot = marks[key] ?: return
+        val view = viewport?.takeIf { it.isAttached } ?: return
+        val text = spot.coords?.takeIf { it.isAttached } ?: return
+        val layout = spot.layout ?: return
+        debugAssert(spot.offset in 0 until layout.layoutInput.text.length) { "mark at ${spot.offset} outside its text (${layout.layoutInput.text.length} chars)" }
+        val top = layout.getLineTop(layout.getLineForOffset(spot.offset))
+        val y = view.localPositionOf(text, Offset(0f, top)).y
+        val height = view.size.height
+        if (y >= 0 && y < height * REVEAL_BELOW) return
+        list.scrollBy(y - height * REVEAL_AT)
+    }
 
     /** Scrolls so that a segment is at the top (inside its paragraph in paragraph flow), [line] pixels above it. */
     suspend fun scrollTo(key: String, animate: Boolean, line: Int = 0) {
@@ -119,6 +148,34 @@ class ReaderScroll(
         val spot = spots[target]
         list.animateScrollToItem(spot.row, spot.inRow - snapLine)
     }
+
+    private companion object {
+        /** A marked word above this share of the list's height is in view: no scroll. */
+        const val REVEAL_BELOW = 0.6f
+        /** Where a marked word is scrolled to, as a share of the list's height from its top. */
+        const val REVEAL_AT = 0.3f
+    }
+}
+
+/** Where a text with marked words was laid out ([coords], [layout]) and its first mark's [offset] in it. */
+class MarkSpot {
+    var coords: LayoutCoordinates? = null
+    var layout: TextLayoutResult? = null
+    var offset = 0
+}
+
+/**
+ * The [MarkSpot] of the segment [key] if it is [marked] (null otherwise), registered with
+ * [scroll] while it is composed.
+ */
+@Composable
+fun rememberMarkSpot(scroll: ReaderScroll, key: String, marked: Boolean): MarkSpot? {
+    val spot = remember(key) { MarkSpot() }
+    DisposableEffect(scroll, key, marked) {
+        if (marked) scroll.marks[key] = spot
+        onDispose { if (scroll.marks[key] === spot) scroll.marks.remove(key) }
+    }
+    return spot.takeIf { marked }
 }
 
 @Composable
@@ -157,6 +214,10 @@ fun PageAsScrolled(
             snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == rowKey } }.first { it }
         }
         if (rows.rows[row] is ParagraphRow) scroll.scrollTo(key, animate = false)
+        if (key in scroll.marks) {
+            withFrameNanos {} // the scroll above laid out
+            scroll.revealMark(key)
+        }
         onInitialDone()
         onVisible(rows.firstItemOf(list.firstVisibleItemIndex), rows.lastItemOf(list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: row))
     }

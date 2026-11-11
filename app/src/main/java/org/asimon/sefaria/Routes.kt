@@ -28,13 +28,15 @@ data class BookRoute(val title: String)
 /**
  * The reader for [book], opened at [ref] (any ref form the server returns: book, node,
  * section, segment or range). [highlight] marks the target segment (search results,
- * bookmarks) but not a restored reading position.
+ * bookmarks) but not a restored reading position. [words] (a search result's, SearchMarks):
+ * the words marked in the target segment in its place, when it holds them.
  */
 @Serializable
 data class ReaderRoute(
     val book: String,
     val ref: String,
     val highlight: Boolean = true,
+    val words: List<String> = emptyList(),
     val trail: List<TrailStep> = emptyList(), // the steps that led here (core/Trail.kt)
 ) {
     companion object {

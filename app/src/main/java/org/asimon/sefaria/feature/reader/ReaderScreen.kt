@@ -91,6 +91,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.ReadOnlyComposable
 import org.asimon.sefaria.ui.LocalTextFonts
@@ -250,11 +252,13 @@ fun ReaderScreen(
                 val focusColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                 val selColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
                 val hlColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f)
+                val wordColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f)
                 val mark = { item: SegmentItem ->
                     when {
                         item.key in selection -> selColor
                         item.key == selectedKey -> focusColor
-                        item.highlighted -> hlColor
+                        // a search result's words are marked in it, not the whole segment
+                        item.highlighted && !item.marksShown(prefs.layout) -> hlColor
                         else -> null
                     }
                 }
@@ -263,20 +267,29 @@ fun ReaderScreen(
                         onScale = { f -> liveScale = (baseScale * f).coerceIn(0.7f, 2f) },
                         onEnd = { liveScale?.let(vm::setFontScale) },
                     )) {
-                        LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(state = list, modifier = Modifier.fillMaxSize().onGloballyPositioned { scroll.viewport = it }) {
                             // No item above the first section: the first visible item must be text, so that
                             // LazyColumn keeps it in place when the previous section is prepended. Loading
                             // or failing to load that section shows as an overlay instead.
                             items(rows.rows, key = { it.key }, contentType = { it::class }) { row ->
                                 when (row) {
                                     is HeaderRow -> SectionHeader(row.item.title)
-                                    is LineRow -> SegmentRow(row.item, prefs, mark(row.item), onClick = { tap(row.item) }, onLongClick = { longPress(row.item) })
-                                    is ParagraphRow -> ParagraphText(
-                                        row, prefs,
-                                        style = if (prefs.layout == Layout.Hebrew) heStyle(prefs.fontScale) else enStyle(prefs.fontScale),
-                                        mark = mark, onTap = tap, onLongPress = longPress,
-                                        onLayout = { scroll.paragraphLayouts[row.key] = it },
+                                    is LineRow -> SegmentRow(
+                                        row.item, prefs, mark(row.item), wordColor,
+                                        spot = rememberMarkSpot(scroll, row.item.key, row.item.marksShown(prefs.layout)),
+                                        onClick = { tap(row.item) }, onLongClick = { longPress(row.item) },
                                     )
+                                    is ParagraphRow -> {
+                                        val marked = row.segments.firstOrNull { it.marksShown(prefs.layout) }
+                                        ParagraphText(
+                                            row, prefs,
+                                            style = if (prefs.layout == Layout.Hebrew) heStyle(prefs.fontScale) else enStyle(prefs.fontScale),
+                                            mark = mark, wordColor = wordColor,
+                                            spot = rememberMarkSpot(scroll, marked?.key ?: row.key, marked != null),
+                                            onTap = tap, onLongPress = longPress,
+                                            onLayout = { scroll.paragraphLayouts[row.key] = it },
+                                        )
+                                    }
                                 }
                             }
                             item(key = "bottom") {
@@ -394,7 +407,7 @@ private fun enStyle(scale: Float) = TextStyle(
 )
 
 @Composable
-private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, wordColor: Color, spot: MarkSpot?, onClick: () -> Unit, onLongClick: () -> Unit) {
     val bg = mark ?: MaterialTheme.colorScheme.surface
     val he = item.he
     val en = item.en
@@ -435,25 +448,43 @@ private fun SegmentRow(item: SegmentItem, prefs: Prefs, mark: Color?, onClick: (
             }
             Spacer(Modifier.width(6.dp))
             val scale = prefs.fontScale
+            // a search result's words, and which text tells the scroll where the first one is
+            val heWords = Words(item.heMarks, wordColor, spot.takeIf { item.heMarks.isNotEmpty() })
+            val enWords = Words(item.enMarks, wordColor, spot.takeIf { item.enMarks.isNotEmpty() && (he == null || item.heMarks.isEmpty()) })
             when (prefs.layout) {
-                Layout.Hebrew -> SegText(he ?: en, if (he != null) heStyle(scale) else enStyle(scale), Modifier.weight(1f))
-                Layout.English -> SegText(en ?: he, if (en != null) enStyle(scale) else heStyle(scale), Modifier.weight(1f))
+                Layout.Hebrew -> if (he != null) SegText(he, heStyle(scale), heWords, Modifier.weight(1f)) else SegText(en, enStyle(scale), enWords, Modifier.weight(1f))
+                Layout.English -> if (en != null) SegText(en, enStyle(scale), enWords, Modifier.weight(1f)) else SegText(he, heStyle(scale), heWords, Modifier.weight(1f))
                 Layout.Stacked -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SegText(he, heStyle(scale))
-                    SegText(en, enStyle(scale))
+                    SegText(he, heStyle(scale), heWords)
+                    SegText(en, enStyle(scale), enWords)
                 }
                 Layout.SideBySide -> Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (en != null) SegText(en, enStyle(scale), Modifier.weight(1f))
-                    if (he != null) SegText(he, heStyle(scale), Modifier.weight(1f))
+                    if (en != null) SegText(en, enStyle(scale), enWords, Modifier.weight(1f))
+                    if (he != null) SegText(he, heStyle(scale), heWords, Modifier.weight(1f))
                 }
             }
         }
     }
 }
 
+/** A search result's words in a text: their [ranges], drawn on [color]; [spot] learns where the first is. */
+private class Words(val ranges: List<IntRange>, val color: Color, val spot: MarkSpot?)
+
 @Composable
-private fun SegText(text: RichText?, style: TextStyle, modifier: Modifier = Modifier) {
+private fun SegText(text: RichText?, style: TextStyle, words: Words, modifier: Modifier = Modifier) {
     if (text == null) return
-    Text(text.text, style = style, color = MaterialTheme.colorScheme.onSurface, modifier = modifier.fillMaxWidth())
+    val shown = remember(text, words.ranges, words.color) {
+        if (words.ranges.isEmpty()) text.text
+        else AnnotatedString.Builder(text.text).apply {
+            for (w in words.ranges) addStyle(SpanStyle(background = words.color), w.first, w.last + 1)
+        }.toAnnotatedString()
+    }
+    val spot = words.spot
+    if (spot != null) spot.offset = words.ranges.first().first
+    Text(
+        shown, style = style, color = MaterialTheme.colorScheme.onSurface,
+        onTextLayout = { spot?.layout = it },
+        modifier = modifier.fillMaxWidth().then(if (spot != null) Modifier.onGloballyPositioned { spot.coords = it } else Modifier),
+    )
 }
 

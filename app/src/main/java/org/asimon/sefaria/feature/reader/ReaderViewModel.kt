@@ -36,6 +36,7 @@ import org.asimon.sefaria.core.ref.segment
 import org.asimon.sefaria.core.text.Hebrew
 import org.asimon.sefaria.core.text.Html
 import org.asimon.sefaria.core.text.RichText
+import org.asimon.sefaria.core.text.SearchMarks
 import org.asimon.sefaria.data.Layout
 import org.asimon.sefaria.data.Prefs
 import org.asimon.sefaria.data.Settings
@@ -63,7 +64,17 @@ data class SegmentItem(
     val sectionTitle: String,
     val highlighted: Boolean,
     val links: Int = 0, // connections touching this segment
-) : ReaderItem
+    /** A highlighted search result: where its words are in [he] and [en] (SearchMarks). */
+    val heMarks: List<IntRange> = emptyList(),
+    val enMarks: List<IntRange> = emptyList(),
+) : ReaderItem {
+    /** Whether the text [layout] shows has marked words: then they are marked, not the whole segment. */
+    fun marksShown(layout: Layout): Boolean = when (layout) {
+        Layout.Hebrew -> (if (he != null) heMarks else enMarks).isNotEmpty()
+        Layout.English -> (if (en != null) enMarks else heMarks).isNotEmpty()
+        Layout.Stacked, Layout.SideBySide -> heMarks.isNotEmpty() || enMarks.isNotEmpty()
+    }
+}
 
 data class ReaderState(
     val bookTitle: String = "",
@@ -122,6 +133,7 @@ class ReaderViewModel @Inject constructor(
     private val chunks: List<Chunk> get() = window.sections
     private var visible = 0..0 // the rows on screen, as last reported (item indexes)
     private var highlight: IntRange = IntRange.EMPTY // slots
+    private val marker = SearchMarks.Matcher(route.words) // a search result's words, marked in the highlighted segment
     private val hebrewUi = MutableStateFlow(false)
     private var opts = DisplayOpts(settings.prefs.value, hebrewUi.value)
     private val parsed = HashMap<String, List<ReaderItem>>() // chunk key -> items for opts
@@ -313,15 +325,21 @@ class ReaderViewModel @Inject constructor(
             val en = c.text.en.getOrNull(i)?.takeIf { it.isNotBlank() }
             if (he == null && en == null) continue // an empty slot
             val ref = section.segment(number)
+            val heText = he?.let { Html.parse(it, stripNiqqud = !o.niqqud, stripCantillation = !o.cantillation) }
+            val enText = en?.let { Html.parse(it) }
+            val highlighted = (start + i) in hl // whole-section responses: segment i is slot start + i
+            val marking = highlighted && !marker.isEmpty
             out += SegmentItem(
                 key = ref.url(),
                 ref = ref,
                 label = if (o.hebrewLabels && type != "Talmud") Hebrew.gematria(number) else number.toString(),
-                he = he?.let { Html.parse(it, stripNiqqud = !o.niqqud, stripCantillation = !o.cantillation) },
-                en = en?.let { Html.parse(it) },
+                he = heText,
+                en = enText,
                 sectionTitle = title,
-                highlighted = (start + i) in hl, // whole-section responses: segment i is slot start + i
+                highlighted = highlighted,
                 links = c.text.linkCounts.getOrNull(i) ?: 0,
+                heMarks = if (marking && heText != null) marker.ranges(heText.plain) else emptyList(),
+                enMarks = if (marking && enText != null) marker.ranges(enText.plain) else emptyList(),
             )
         }
         return out

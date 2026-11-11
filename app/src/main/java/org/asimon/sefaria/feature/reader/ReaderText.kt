@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -130,7 +131,8 @@ val ParagraphPad = 6.dp
 
 /**
  * A section as one justified paragraph with small verse numbers. Tapping selects the verse
- * under the finger, long-press starts a range selection; [mark] colours a verse's background.
+ * under the finger, long-press starts a range selection; [mark] colours a verse's background,
+ * and a search result's words get [wordColor]; [spot] learns where the first of them is.
  */
 @Composable
 fun ParagraphText(
@@ -138,6 +140,8 @@ fun ParagraphText(
     prefs: Prefs,
     style: TextStyle,
     mark: (SegmentItem) -> Color?,
+    wordColor: Color,
+    spot: MarkSpot?,
     onTap: (SegmentItem) -> Unit,
     onLongPress: (SegmentItem) -> Unit,
     onLayout: (ParagraphLayout) -> Unit,
@@ -145,24 +149,33 @@ fun ParagraphText(
     val hebrew = prefs.layout == Layout.Hebrew
     val numberColor = MaterialTheme.colorScheme.secondary
     val marks = row.segments.map(mark)
-    val (text, ranges) = remember(row, hebrew, marks, numberColor) {
+    val (text, ranges, firstWord) = remember(row, hebrew, marks, numberColor, wordColor) {
         val ranges = ArrayList<IntRange>(row.segments.size)
+        var firstWord = -1
         val text = buildAnnotatedString {
             for ((i, seg) in row.segments.withIndex()) {
-                val body: AnnotatedString = (if (hebrew) seg.he ?: seg.en else seg.en ?: seg.he)?.text ?: continue
+                val shown = (if (hebrew) seg.he?.let { it to seg.heMarks } ?: seg.en?.let { it to seg.enMarks }
+                    else seg.en?.let { it to seg.enMarks } ?: seg.he?.let { it to seg.heMarks }) ?: continue
+                val body: AnnotatedString = shown.first.text
                 val start = length
                 pushStyle(SpanStyle(color = numberColor, fontSize = 0.6.em, baselineShift = BaselineShift(0.35f)))
                 append(seg.label)
                 pop()
                 append(' ')
+                val at = length
                 append(body)
                 marks[i]?.let { addStyle(SpanStyle(background = it), start, length) }
+                for (w in shown.second) {
+                    addStyle(SpanStyle(background = wordColor), at + w.first, at + w.last + 1)
+                    if (firstWord < 0) firstWord = at + w.first
+                }
                 ranges += start until length
                 append(' ')
             }
         }
-        text to ranges
+        Triple(text, ranges, firstWord)
     }
+    if (spot != null && firstWord >= 0) spot.offset = firstWord
     val laid = remember(row.key) { LayoutHolder() }
     // the gesture handler outlives recompositions: read the latest callbacks
     val tap by rememberUpdatedState(onTap)
@@ -171,10 +184,14 @@ fun ParagraphText(
         text,
         style = style.copy(textAlign = TextAlign.Justify),
         color = MaterialTheme.colorScheme.onSurface,
-        onTextLayout = { l -> ParagraphLayout(l, ranges, row.segments).also { laid.value = it; onLayout(it) } },
+        onTextLayout = { l ->
+            spot?.layout = l
+            ParagraphLayout(l, ranges, row.segments).also { laid.value = it; onLayout(it) }
+        },
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = ParagraphPad)
+            .onGloballyPositioned { spot?.coords = it }
             .pointerInput(row.key, ranges) {
                 detectTapGestures(
                     onTap = { pos -> laid.value?.segmentAt(pos)?.let(tap) },
